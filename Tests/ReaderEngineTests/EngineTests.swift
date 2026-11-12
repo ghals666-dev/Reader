@@ -273,7 +273,9 @@ final class EngineTests: XCTestCase {
         if exact {
             XCTAssertEqual(headings.first, "## " + Self.heading, file: file, line: line)
             // 줄을 이을 때 띄어쓰기는 어림이므로 공백을 빼고 비교한다.
-            let squeezed = squeeze(text)
+            // 쪽을 넘는 문단 사이에는 쪽 마커가 낄 수 있으므로 마커도 빼고 본다.
+            let squeezed = squeeze(chunks.filter { !$0.hasPrefix("[p.") }.joined())
+                .replacingOccurrences(of: ">", with: "")
             for paragraph in Self.paragraphs + [Self.quote] {
                 XCTAssertTrue(squeezed.contains(squeeze(paragraph)),
                               "문단이 온전하지 않음: \(paragraph.prefix(12))…\n\(text)", file: file, line: line)
