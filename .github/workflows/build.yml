@@ -20,7 +20,12 @@ jobs:
 
   # 전체 빌드, PDFKit·Vision 통합 테스트, 앱 묶음 생성
   macos:
-    runs-on: macos-latest
+    # 러너 종류에 따라 배정이 늦거나 지원이 끊기는 경우가 있어 여러 종류로 돌린다.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-26, macos-15-intel]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +37,7 @@ jobs:
         run: scripts/make-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Reader
+          name: Reader-${{ matrix.os }}
           path: |
             build/Reader.zip
             build/reader-cli
