@@ -172,7 +172,7 @@ final class CoreTests: XCTestCase {
         // 앞 낱말이 끝난 모양이면 띄운다
         XCTAssertEqual(LineJoiner.join("나무를 심었다는", "소식을 들었다"), "나무를 심었다는 소식을 들었다")
         // 근거가 없으면 붙인다(낱말 중간에서 끊긴 경우가 더 흔하다)
-        XCTAssertEqual(LineJoiner.join("오래된 도서", "관에 갔다"), "오래된 도서관에 갔다")
+        XCTAssertEqual(LineJoiner.join("오래된 박물", "관에 갔다"), "오래된 박물관에 갔다")
         // 닫는 따옴표 뒤의 조사
         XCTAssertEqual(LineJoiner.join("“어서 오세요”", "라는 인사"), "“어서 오세요”라는 인사")
         XCTAssertEqual(LineJoiner.join("“어서 오세요”", "하늘이 맑았다"), "“어서 오세요” 하늘이 맑았다")
