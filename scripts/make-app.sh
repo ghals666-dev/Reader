@@ -3,9 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --product ReaderApp
-swift build -c release --product reader-cli
-BIN_DIR="$(swift build -c release --show-bin-path)"
+# 애플 실리콘과 인텔 맥 모두에서 도는 유니버설 바이너리로 만든다.
+ARCHS=(--arch arm64 --arch x86_64)
+swift build -c release "${ARCHS[@]}" --product ReaderApp
+swift build -c release "${ARCHS[@]}" --product reader-cli
+BIN_DIR="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
 
 APP="build/Reader.app"
 rm -rf build
@@ -33,5 +35,6 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --deep -s - "$APP"
+lipo -archs "$APP/Contents/MacOS/Reader"
 (cd build && ditto -c -k --keepParent Reader.app Reader.zip)
 echo "완성: $APP, build/Reader.zip, build/reader-cli"

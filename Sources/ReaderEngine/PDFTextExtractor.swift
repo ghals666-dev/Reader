@@ -84,51 +84,66 @@ public struct PDFTextExtractor: Sendable {
         guard media.width > 0 else { return nil }
         let pageW = Double(media.width)
 
+        // 낱말마다 선택 영역을 만들어 글자와 좌표를 함께 얻는다.
+        // (page.string의 순번과 characterBounds(at:)의 순번은 서로 어긋날 수 있어 쓰지 않는다.)
         let ns = string as NSString
-        let total = min(ns.length, page.numberOfCharacters)
         var lines: [TextLine] = []
-        var text = ""
+        var words: [String] = []
         var box: CGRect?
         var lastBox: CGRect?
 
         func flush() {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, let b = box {
+            let text = words.joined(separator: " ")
+            if !text.isEmpty, let b = box {
                 let rect = Rect(x: Double(b.minX - media.minX) / pageW,
                                 y: Double(media.maxY - b.maxY) / pageW,
                                 width: Double(b.width) / pageW,
                                 height: Double(b.height) / pageW)
-                lines.append(TextLine(text: trimmed, box: rect, confidence: 1))
+                lines.append(TextLine(text: text, box: rect, confidence: 1))
             }
-            text = ""
+            words = []
             box = nil
             lastBox = nil
         }
 
-        var i = 0
-        while i < total {
-            let range = ns.rangeOfComposedCharacterSequence(at: i)
-            let ch = ns.substring(with: range)
-            if ch == "\n" || ch == "\r" || ch == "\r\n" {
-                flush()
-            } else {
-                let b = page.characterBounds(at: i)
-                let isSpace = ch.trimmingCharacters(in: .whitespaces).isEmpty
-                if !isSpace, b.width > 0, b.height > 0 {
-                    if let lb = lastBox {
-                        let tall = max(lb.height, b.height)
-                        let gap = b.minX - lb.maxX
-                        if gap > 2.5 * tall || b.maxX < lb.minX - tall || abs(b.midY - lb.midY) > tall {
-                            flush()
-                        }
-                    }
-                    box = box.map { $0.union(b) } ?? b
-                    lastBox = b
-                }
-                text += ch
+        var tokenStart: Int?
+        func endToken(at end: Int) {
+            guard let start = tokenStart else { return }
+            tokenStart = nil
+            let range = NSRange(location: start, length: end - start)
+            let word = ns.substring(with: range)
+            guard let b = page.selection(for: range)?.bounds(for: page),
+                  b.width > 0, b.height > 0 else {
+                // 좌표를 알 수 없는 낱말은 지금 줄에 붙여 둔다.
+                if box != nil { words.append(word) }
+                return
             }
-            i = range.location + max(range.length, 1)
+            if let lb = lastBox {
+                let tall = max(lb.height, b.height)
+                let overlap = min(lb.maxY, b.maxY) - max(lb.minY, b.minY)
+                let sameRow = overlap > 0.5 * min(lb.height, b.height)
+                // 다른 줄이거나, 단 사이 여백만큼 벌어졌거나, 왼쪽으로 되돌아갔으면 끊는다.
+                if !sameRow || b.minX - lb.maxX > 2.5 * tall || b.minX < lb.maxX - tall {
+                    flush()
+                }
+            }
+            words.append(word)
+            box = box.map { $0.union(b) } ?? b
+            lastBox = b
         }
+
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        for i in 0..<ns.length {
+            let unit = ns.character(at: i)
+            let isSpace = Unicode.Scalar(unit).map { whitespace.contains($0) } ?? false
+            if isSpace {
+                endToken(at: i)
+                if unit == 10 || unit == 13 { flush() }
+            } else if tokenStart == nil {
+                tokenStart = i
+            }
+        }
+        endToken(at: ns.length)
         flush()
         return lines.isEmpty ? nil : lines
     }
