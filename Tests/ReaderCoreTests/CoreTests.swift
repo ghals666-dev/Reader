@@ -251,8 +251,12 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(LineJoiner.join("이제는 결코", "정죄함이 없다", lexicon: lexicon), "이제는 결코 정죄함이 없다")
         // 붙인 꼴이 낱말로 나오면 붙인다
         XCTAssertEqual(LineJoiner.join("바로 우리 공동", "체는 하나다", lexicon: lexicon), "바로 우리 공동체는 하나다")
-        // 한 글자 조각은 홀로 쓰는 말일 때만 띄운다
-        let singles = Lexicon(rows: ["저기 가 보자 얼른", "함께 기를 쓰고 달렸다", "정말 더 좋은 날이다", "아주 중요한 일이다"])
+        // 앞 조각이 한 글자일 때: 뒤가 "한 글자 + 조사"면 잘린 낱말로 보고, 아니면 띄운다
+        let singles = Lexicon(rows: ["저기 가 보자 얼른", "함께 기를 쓰고 달렸다", "정말 더 좋은 날이다",
+                                     "아주 중요한 일이다", "그런 말 하지 마라", "문제 자체가 정말 어렵다",
+                                     "모은 돈 걱정 없이 쓴다"])
+        XCTAssertEqual(LineJoiner.join("그 말", "자체가 틀렸다", lexicon: singles), "그 말 자체가 틀렸다")
+        XCTAssertEqual(LineJoiner.join("늘 하던 돈", "걱정 이야기", lexicon: singles), "늘 하던 돈 걱정 이야기")
         XCTAssertEqual(LineJoiner.join("집에 가", "기를 바랐다", lexicon: singles), "집에 가기를 바랐다")
         XCTAssertEqual(LineJoiner.join("이것이 더", "중요한 일이다", lexicon: singles), "이것이 더 중요한 일이다")
         // 근거가 없으면 이전 규칙대로

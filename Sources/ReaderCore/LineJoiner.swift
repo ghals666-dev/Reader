@@ -133,11 +133,15 @@ public enum LineJoiner {
                 let rest = b.dropFirst(head.count)
                 if let next = rest.first, !next.isWhitespace { return "" }
             }
-            // 한 글자 조각은 우연히 낱말과 같을 수 있으므로("가" + "기를"), 홀로 쓰는 말일 때만 믿는다.
             if let lexicon, let t = tailWord, let h = headWord, h.count >= 2,
-               t.count >= 2 || standaloneSyllables.contains(last),
                lexicon.contains(t), lexicon.contains(h) {
-                return " "
+                // 앞 조각이 한 글자면 우연히 낱말과 같을 수 있다. 뒤 조각이 "한 글자 + 조사" 꼴이면
+                // ("가" + "기를", "시" + "대는") 한 낱말이 잘린 것으로 보고 근거로 삼지 않는다.
+                var trusted = t.count >= 2 || standaloneSyllables.contains(last)
+                if !trusted, let end = h.last {
+                    trusted = !(h.count == 2 && (particleFinals.contains(end) || end == "의"))
+                }
+                if trusted { return " " }
             }
             if whole && wordFinals.contains(last) { return " " }
             return ""
