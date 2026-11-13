@@ -30,6 +30,7 @@ struct ContentView: View {
         HStack(spacing: 18) {
             Toggle("쪽 마커 [p.N]", isOn: $queue.pageMarkers)
             Toggle("소제목·인용 표시", isOn: $queue.structureMarkers)
+            Toggle("안내 머리말", isOn: $queue.header)
             Toggle("각주 번호 지우기", isOn: $queue.cleanNoise)
             Toggle("항상 OCR", isOn: $queue.forceOCR)
             Toggle("기존 txt 덮어쓰기", isOn: $queue.overwrite)
@@ -140,6 +141,9 @@ private struct ItemRow: View {
         switch item.status {
         case .done(let s):
             var parts = ["\(s.pageCount)쪽 (OCR \(s.ocrPages), 텍스트 \(s.textLayerPages))"]
+            if s.textLayerRejected {
+                parts.append("텍스트 레이어 품질이 낮아 OCR로 읽음")
+            }
             if !s.lowConfidencePages.isEmpty {
                 parts.append("인식이 불확실한 쪽: " + s.lowConfidencePages.map(String.init).joined(separator: ", "))
             }

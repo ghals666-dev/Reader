@@ -48,7 +48,7 @@ final class EngineTests: XCTestCase {
     }
 
     /// scanned가 참이면 글자를 그림으로만 담고(텍스트 레이어 없음), 거짓이면 글자를 그대로 담는다.
-    func makePDF(_ pages: [[Item]], scanned: Bool, name: String) throws -> URL {
+    func makePDF(_ pages: [[Item]], scanned: Bool, name: String, hiddenText: [[Item]]? = nil) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("reader-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -56,7 +56,7 @@ final class EngineTests: XCTestCase {
 
         var box = CGRect(x: 0, y: 0, width: Self.pageW, height: Self.pageH)
         let pdf = try XCTUnwrap(CGContext(url as CFURL, mediaBox: &box, nil))
-        for items in pages {
+        for (pageIndex, items) in pages.enumerated() {
             pdf.beginPDFPage(nil)
             if scanned {
                 let scale: CGFloat = 3
@@ -71,6 +71,12 @@ final class EngineTests: XCTestCase {
                 pdf.draw(try XCTUnwrap(bitmap.makeImage()), in: box)
             } else {
                 draw(items, in: pdf, scale: 1)
+            }
+            // 스캔본에 다른 프로그램이 입혀 둔, 보이지 않는 텍스트 레이어
+            if let hiddenText, pageIndex < hiddenText.count {
+                pdf.setTextDrawingMode(.invisible)
+                draw(hiddenText[pageIndex], in: pdf, scale: 1)
+                pdf.setTextDrawingMode(.fill)
             }
             pdf.endPDFPage()
         }
@@ -304,6 +310,46 @@ final class EngineTests: XCTestCase {
         checkBook(text, layout: layout, exact: true)
     }
 
+    // MARK: - 품질이 낮은 텍스트 레이어
+
+    func testWrongTextLayerIsReplacedByOCR() throws {
+        // 그림으로 보이는 글과 전혀 다른 글이 텍스트 레이어로 들어 있는 PDF
+        let layout = bookLayout()
+        let wrong = [
+            "바닷가 등대 옆에서 갈매기가 조개를 줍고 있었다",
+            "어부는 그물을 손질하며 저녁 바람을 기다렸고",
+            "항구의 불빛은 하나둘 켜지기 시작하였으며",
+            "멀리서 뱃고동 소리가 길게 울려 퍼졌는데",
+        ]
+        let hidden: [Item] = (0..<12).map { i in
+            Item(text: wrong[i % wrong.count], x: 40, top: 150 + CGFloat(i) * 22)
+        }
+        let url = try makePDF(layout.pages, scanned: true, name: "wrong-layer.pdf",
+                              hiddenText: [hidden, hidden])
+        let extraction = try XCTUnwrap(PDFTextExtractor().extractDetailed(url: url))
+        XCTAssertTrue(extraction.textLayerRejected, "틀린 텍스트 레이어를 그대로 믿음")
+        XCTAssertTrue(extraction.pages.allSatisfy { $0.source == .ocr })
+        let text = DocumentBuilder.build(pages: extraction.pages).text
+        print("--- 틀린 텍스트 레이어 결과 ---\n\(text)---------------")
+        XCTAssertTrue(squeeze(text).contains("진달래"), text)
+        XCTAssertFalse(squeeze(text).contains("갈매기"), text)
+    }
+
+    func testGoodTextLayerIsKept() throws {
+        let layout = bookLayout()
+        let url = try makePDF(layout.pages, scanned: false, name: "good-layer.pdf")
+        let extraction = try XCTUnwrap(PDFTextExtractor().extractDetailed(url: url))
+        XCTAssertFalse(extraction.textLayerRejected, "멀쩡한 텍스트 레이어를 버림")
+        XCTAssertTrue(extraction.pages.allSatisfy { $0.source == .textLayer })
+    }
+
+    func testAgreementScore() {
+        let a = PDFTextExtractor.signature("봄이 오면 뒷산에는 진달래가 먼저 핍니다.")
+        XCTAssertEqual(PDFTextExtractor.agreement(of: a, with: a), 1, accuracy: 0.001)
+        let b = PDFTextExtractor.signature("바닷가 등대 옆에서 갈매기가 조개를 줍는다")
+        XCTAssertLessThan(PDFTextExtractor.agreement(of: a, with: b), 0.3)
+    }
+
     // MARK: - 저장
 
     func testConverterWritesNextToPDFAndSkipsExisting() throws {
@@ -312,6 +358,8 @@ final class EngineTests: XCTestCase {
             return XCTFail("변환 실패")
         }
         XCTAssertEqual(summary.outputURL.lastPathComponent, "text.txt")
+        let saved = try String(contentsOf: summary.outputURL, encoding: .utf8)
+        XCTAssertTrue(saved.hasPrefix("# text\n\n("), saved)
         XCTAssertTrue(FileManager.default.fileExists(atPath: summary.outputURL.path))
         guard case .skipped = Converter.convert(pdf: url) else {
             return XCTFail("이미 있는 txt를 건너뛰지 않음")

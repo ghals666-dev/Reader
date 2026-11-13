@@ -105,14 +105,17 @@ enum ParagraphBuilder {
         }
 
         var out: [Paragraph] = []
-        for block in blocks {
+        for (blockIndex, block) in blocks.enumerated() {
             let blockID = nextBlockID
             nextBlockID += 1
             let bL = block.map { $0.box.minX }.min() ?? colL
             let bR = block.map { $0.box.maxX }.max() ?? colR
             let blockH = median(block.map { $0.box.height }) ?? bodyH
 
-            if isHeading(block, colL: colL, colR: colR, colW: colW, segmentRows: rows.count) {
+            if isHeading(block, colL: colL, colR: colR, colW: colW, segmentRows: rows.count)
+                || isLeftHeading(block, colL: colL, colR: colR, colW: colW, bodyH: bodyH,
+                                 segmentRows: rows.count,
+                                 isFirst: blockIndex == 0, isLast: blockIndex == blocks.count - 1) {
                 let text = block.map { $0.text }.joined(separator: " ")
                 out.append(Paragraph(kind: .heading, text: text, pageIndex: pageIndex,
                                      blockID: blockID, startsIndented: true, lastRowFull: false))
@@ -181,6 +184,31 @@ enum ParagraphBuilder {
                                  blockInset: blockInset, blockRowCount: block.count))
         }
         return out
+    }
+
+    /// 왼쪽 정렬 소제목: 앞뒤가 빈 줄로 떨어진 한두 줄짜리 짧은 글로, 문장처럼 끝나지 않고
+    /// 뒤에 내용이 이어지는 것.
+    private static func isLeftHeading(_ block: [Row], colL: Double, colR: Double, colW: Double,
+                                      bodyH: Double, segmentRows: Int,
+                                      isFirst: Bool, isLast: Bool) -> Bool {
+        guard block.count <= 2, segmentRows >= 4, colW > 0, !isLast else { return false }
+        // 줄이 오른쪽 끝까지 차 있으면 문단에서 떨어져 나온 조각일 가능성이 크다.
+        for row in block where colR - row.box.maxX <= 0.15 * colW { return false }
+        // 쪽 첫머리의 들여 짠 한 줄은 앞 쪽에서 넘어온 인용문의 끝일 수 있다.
+        let inset = (block.map { $0.box.minX }.min() ?? colL) - colL
+        if isFirst && inset > indentMin * bodyH { return false }
+        return looksLikeTitle(block.map { $0.text }.joined(separator: " "))
+    }
+
+    static func looksLikeTitle(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 2, t.count <= 40, let first = t.first, let last = t.last else { return false }
+        let letters = t.filter { LineJoiner.isHangul($0) || ($0.isASCII && $0.isLetter) }.count
+        guard letters >= 2 else { return false }
+        if "\"“‘'(「『•-·~[{|/_…>.,".contains(first) { return false }
+        if ".。,)”\"’']:;」』".contains(last) { return false }
+        if last.isNumber { return false }
+        return true
     }
 
     /// 가운데 정렬된 한두 줄짜리 짧은 덩어리를 소제목으로 본다.

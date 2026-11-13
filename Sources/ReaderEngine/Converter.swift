@@ -19,6 +19,8 @@ public struct ConversionSummary: Sendable {
     public var characters: Int
     public var lowConfidencePages: [Int]
     public var emptyPages: [Int]
+    /// 텍스트 레이어가 있었지만 품질이 낮아 OCR로 다시 읽었는지
+    public var textLayerRejected = false
 }
 
 public enum ConversionOutcome: Sendable {
@@ -44,11 +46,13 @@ public enum Converter {
         }
         do {
             let extractor = PDFTextExtractor(forceOCR: options.forceOCR)
-            guard let pages = try extractor.extract(url: pdf, progress: progress,
-                                                    isCancelled: isCancelled) else {
+            guard let extraction = try extractor.extractDetailed(url: pdf, progress: progress,
+                                                                 isCancelled: isCancelled) else {
                 return .cancelled
             }
-            let result = DocumentBuilder.build(pages: pages, options: options.build)
+            let pages = extraction.pages
+            let result = DocumentBuilder.build(pages: pages, options: options.build,
+                                               title: pdf.deletingPathExtension().lastPathComponent)
             try result.text.write(to: output, atomically: true, encoding: .utf8)
             return .converted(ConversionSummary(
                 outputURL: output,
@@ -57,7 +61,8 @@ public enum Converter {
                 textLayerPages: pages.filter { $0.source == .textLayer }.count,
                 characters: result.text.count,
                 lowConfidencePages: result.lowConfidencePages,
-                emptyPages: result.emptyPages))
+                emptyPages: result.emptyPages,
+                textLayerRejected: extraction.textLayerRejected))
         } catch {
             return .failed(error.localizedDescription)
         }

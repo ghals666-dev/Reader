@@ -346,6 +346,58 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(text.trimmingCharacters(in: .newlines).replacingOccurrences(of: "\n\n", with: "").contains("\n"), text)
     }
 
+    func testLeftAlignedHeading() {
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("앞 문단의 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.100),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.136),
+            line("둘째 마당 이야기", x: 0.05, to: 0.30, y: 0.230),
+            line("제목 아래 본문도 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.320),
+            line("한 줄 더 끝까지 이어진 다음", x: 0.05, to: 0.95, y: 0.356),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.392),
+            // 문장으로 끝나는 짧은 한 줄은 소제목이 아니다
+            line("짧지만 문장입니다.", x: 0.05, to: 0.30, y: 0.480),
+            line("그 뒤의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.570),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.606),
+            // 쪽의 마지막 덩어리는 뒤에 내용이 없으므로 소제목으로 보지 않는다
+            line("맨 끝의 짧은 줄", x: 0.05, to: 0.30, y: 0.700),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertTrue(text.contains("\n\n## 둘째 마당 이야기\n\n"), text)
+        XCTAssertFalse(text.contains("## 짧지만"), text)
+        XCTAssertFalse(text.contains("## 맨 끝의"), text)
+        XCTAssertEqual(text.components(separatedBy: "## ").count - 1, 1, text)
+    }
+
+    func testTitleShapes() {
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("불편한 예배"))
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("주님을 사랑하고 있습니까?"))
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("3장 여름 이야기"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("그렇게 말했습니다."))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("“어서 오세요”"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("• 첫째 항목"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("김 아무개, 어느 신문 기사 2023"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("12"))
+    }
+
+    func testHeaderExplainsMarkers() {
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("본문 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.30),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.336),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], title: "시험 문서").text
+        XCTAssertTrue(text.hasPrefix("# 시험 문서\n\n(이 글은 PDF에서"), text)
+        XCTAssertTrue(text.contains("전체 1쪽."), text)
+        XCTAssertTrue(text.contains("[p.N]은 원본의 쪽 번호, ##는 소제목, >는 인용문 표시입니다."), text)
+
+        let bare = DocumentBuilder.build(
+            pages: [page], options: BuildOptions(pageMarkers: false, structureMarkers: false), title: "시험 문서").text
+        XCTAssertFalse(bare.contains("표시입니다"), bare)
+        let none = DocumentBuilder.build(pages: [page], options: BuildOptions(header: false), title: "시험 문서").text
+        XCTAssertFalse(none.contains("# 시험 문서"), none)
+        // 제목을 모르면 머리말을 넣지 않는다
+        XCTAssertFalse(DocumentBuilder.build(pages: [page]).text.contains("자동으로 옮긴"))
+    }
+
     func testEndsTerminal() {
         XCTAssertTrue(LineJoiner.endsTerminal("그렇게 말했습니다.7"))
         XCTAssertTrue(LineJoiner.endsTerminal("그렇지 않겠지요.”"))

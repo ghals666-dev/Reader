@@ -32,12 +32,32 @@ public struct PDFTextExtractor: Sendable {
         self.forceOCR = forceOCR
     }
 
+    public struct Extraction: Sendable {
+        public var pages: [RawPage]
+        /// 텍스트 레이어가 있었지만 품질이 낮아 OCR로 다시 읽었는지
+        public var textLayerRejected: Bool
+    }
+
     /// 취소되면 nil을 돌려준다.
     public func extract(url: URL,
                         progress: (Double) -> Void = { _ in },
                         isCancelled: () -> Bool = { false }) throws -> [RawPage]? {
+        try extractDetailed(url: url, progress: progress, isCancelled: isCancelled)?.pages
+    }
+
+    /// 취소되면 nil을 돌려준다.
+    public func extractDetailed(url: URL,
+                                progress: (Double) -> Void = { _ in },
+                                isCancelled: () -> Bool = { false }) throws -> Extraction? {
         guard let document = PDFDocument(url: url) else { throw ExtractError.cannotOpen }
         if document.isLocked { throw ExtractError.locked }
+
+        var useTextLayer = !forceOCR
+        var rejected = false
+        if useTextLayer, textLayerLooksBad(document) {
+            useTextLayer = false
+            rejected = true
+        }
 
         var pages: [RawPage] = []
         let count = document.pageCount
@@ -45,26 +65,87 @@ public struct PDFTextExtractor: Sendable {
             if isCancelled() { return nil }
             let page: RawPage? = try autoreleasepool {
                 guard let pdfPage = document.page(at: i) else { return nil }
-                return try extract(page: pdfPage, index: i)
+                return try extract(page: pdfPage, index: i, useTextLayer: useTextLayer)
             }
             if let page { pages.append(page) }
             progress(Double(i + 1) / Double(max(count, 1)))
         }
-        return pages
+        return Extraction(pages: pages, textLayerRejected: rejected)
     }
 
-    func extract(page: PDFPage, index: Int) throws -> RawPage {
+    static func pageSize(_ page: PDFPage) -> (width: Double, height: Double) {
         let media = page.bounds(for: .mediaBox)
         let rotated = page.rotation % 180 != 0
-        let w = Double(rotated ? media.height : media.width)
-        let h = Double(rotated ? media.width : media.height)
+        return (Double(rotated ? media.height : media.width), Double(rotated ? media.width : media.height))
+    }
+
+    func extract(page: PDFPage, index: Int, useTextLayer: Bool) throws -> RawPage {
+        let (w, h) = Self.pageSize(page)
         let aspect = w > 0 ? h / w : 1.4
 
-        if !forceOCR, let lines = textLayerLines(page: page) {
+        if useTextLayer, let lines = textLayerLines(page: page) {
             return RawPage(index: index, height: aspect, lines: lines, source: .textLayer)
         }
         let lines = try ocrLines(page: page, index: index, width: w, height: h)
         return RawPage(index: index, height: aspect, lines: lines, source: .ocr)
+    }
+
+    // MARK: - 텍스트 레이어 품질 확인
+
+    /// 스캔본에 다른 프로그램이 입혀 둔 텍스트 레이어는 글자가 많이 틀려 있을 수 있다.
+    /// 글이 충분한 쪽을 최대 세 쪽 골라 Vision으로도 읽어 보고, 서로 크게 다르면 믿지 않는다.
+    func textLayerLooksBad(_ document: PDFDocument) -> Bool {
+        var candidates: [Int] = []
+        for i in 0..<document.pageCount {
+            guard let page = document.page(at: i), page.rotation == 0, let string = page.string else { continue }
+            if Self.signature(string).count >= 200 { candidates.append(i) }
+        }
+        guard !candidates.isEmpty else { return false }
+        var picks: [Int] = []
+        for quarter in 1...3 {
+            let index = candidates[min(candidates.count - 1, candidates.count * quarter / 4)]
+            if !picks.contains(index) { picks.append(index) }
+        }
+
+        var bad = 0
+        for index in picks {
+            let low: Bool = autoreleasepool {
+                guard let page = document.page(at: index), let string = page.string else { return false }
+                let (w, h) = Self.pageSize(page)
+                guard let lines = try? ocrLines(page: page, index: index, width: w, height: h) else { return false }
+                let seen = Self.signature(lines.map { $0.text }.joined(separator: " "))
+                guard seen.count >= 50 else { return false }
+                return Self.agreement(of: Self.signature(string), with: seen) < 0.7
+            }
+            if low { bad += 1 }
+        }
+        return bad * 2 > picks.count
+    }
+
+    /// 비교용으로 한글과 영문·숫자만 남긴 글자열
+    static func signature(_ text: String) -> [Character] {
+        text.lowercased().filter { ch in
+            guard let v = ch.unicodeScalars.first?.value else { return false }
+            return (0xAC00...0xD7A3).contains(v) || (ch.isASCII && (ch.isLetter || ch.isNumber))
+        }
+    }
+
+    /// layer의 두 글자 묶음 가운데 seen에도 나오는 비율 (0~1)
+    static func agreement(of layer: [Character], with seen: [Character]) -> Double {
+        guard layer.count >= 2 else { return 1 }
+        var counts: [String: Int] = [:]
+        if seen.count >= 2 {
+            for i in 0..<(seen.count - 1) { counts[String(seen[i...i + 1]), default: 0] += 1 }
+        }
+        var hits = 0
+        for i in 0..<(layer.count - 1) {
+            let key = String(layer[i...i + 1])
+            if let n = counts[key], n > 0 {
+                hits += 1
+                counts[key] = n - 1
+            }
+        }
+        return Double(hits) / Double(layer.count - 1)
     }
 
     // MARK: - 텍스트 레이어
