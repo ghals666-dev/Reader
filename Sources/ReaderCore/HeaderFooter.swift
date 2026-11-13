@@ -15,16 +15,21 @@ struct CleanPage {
 /// 본문을 지우는 사고를 막기 위해 조건을 좁게 잡는다.
 /// - 쪽 위·아래 10% 구역 안에 있는 줄만 후보로 본다.
 /// - 쪽번호 모양(`12`, `- 12 -`, `126 / 179`)이거나,
-///   앞뒤 두 쪽 안에서 같은 높이에 거의 같은 글이 다시 나올 때만 지운다.
+///   그 쪽의 맨 바깥 줄이면서 가까운 쪽의 같은 높이에 거의 같은 글이 다시 나올 때만 지운다.
+///   쪽번호가 붙어 읽힌 면주("142장 제목")도 잡도록 숫자를 뺀 글로도 견준다.
 enum HeaderFooterFilter {
     static let zoneRatio = 0.10
-    static let neighbourReach = 2
+    static let neighbourReach = 6
 
     private struct Candidate {
         var lineIndex: Int
         var top: Bool
         var relY: Double
         var key: String
+        /// 숫자를 뺀 열쇠
+        var bare: String
+        /// 그 구역에서 쪽 가장자리에 가장 가까운 줄(같은 높이의 줄 포함)인지
+        var outermost: Bool
         var number: Int?
         var x: Double
     }
@@ -38,8 +43,14 @@ enum HeaderFooterFilter {
                 let top = rel < zoneRatio
                 let bottom = rel > 1 - zoneRatio
                 guard top || bottom else { continue }
+                let k = key(line.text)
+                let edge = top
+                    ? (page.lines.map { $0.box.midY }.min() ?? line.box.midY)
+                    : (page.lines.map { $0.box.midY }.max() ?? line.box.midY)
                 out.append(Candidate(lineIndex: i, top: top, relY: rel,
-                                     key: key(line.text),
+                                     key: k,
+                                     bare: k.replacingOccurrences(of: "#", with: ""),
+                                     outermost: abs(line.box.midY - edge) < 0.6 * line.box.height,
                                      number: pageNumber(in: line.text),
                                      x: line.box.minX))
             }
@@ -54,14 +65,17 @@ enum HeaderFooterFilter {
                     remove.insert(c.lineIndex)
                     continue
                 }
+                guard c.outermost else { continue }
                 let lo = max(0, p - neighbourReach)
                 let hi = min(pages.count - 1, p + neighbourReach)
                 var repeated = false
                 for q in lo...hi where q != p && !repeated {
                     repeated = candidates[q].contains { other in
                         other.top == c.top
+                            && other.outermost
                             && abs(other.relY - c.relY) < 0.02
-                            && similar(other.key, c.key)
+                            && (similar(other.key, c.key)
+                                || (c.bare.count >= 2 && similar(other.bare, c.bare)))
                     }
                 }
                 if repeated { remove.insert(c.lineIndex) }

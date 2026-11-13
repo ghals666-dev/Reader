@@ -9,7 +9,9 @@ public enum DocumentBuilder {
         let labels = pageLabels(clean)
 
         let layout = clean.map { (index: $0.index, segments: ColumnLayout.segments(for: $0.lines)) }
-        let paragraphs = ParagraphBuilder.build(pages: layout, structure: options.structureMarkers)
+        let lexicon = Lexicon(rows: layout.flatMap { $0.segments.flatMap { $0.rows.map { $0.text } } })
+        let paragraphs = ParagraphBuilder.build(pages: layout, structure: options.structureMarkers,
+                                                lexicon: lexicon)
 
         var chunks: [String] = []
         var currentPage: Int?

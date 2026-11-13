@@ -243,6 +243,62 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(marker.upperBound <= body.lowerBound, text)
     }
 
+    func testLexiconDecidesSpacing() {
+        let lexicon = Lexicon(rows: ["그는 결코 물러서지 않았다", "거기에 정죄함이 없다", "우리 공동체는 하나다"])
+        XCTAssertTrue(lexicon.contains("결코"))
+        XCTAssertFalse(lexicon.contains("그는"), "줄의 첫 낱말은 넣지 않는다")
+        // 두 조각이 각각 낱말로 나오면 띄운다
+        XCTAssertEqual(LineJoiner.join("이제는 결코", "정죄함이 없다", lexicon: lexicon), "이제는 결코 정죄함이 없다")
+        // 붙인 꼴이 낱말로 나오면 붙인다
+        XCTAssertEqual(LineJoiner.join("바로 우리 공동", "체는 하나다", lexicon: lexicon), "바로 우리 공동체는 하나다")
+        // 근거가 없으면 이전 규칙대로
+        XCTAssertEqual(LineJoiner.join("이제는 결코", "정죄함이 없다"), "이제는 결코정죄함이 없다")
+        // 괄호 뒤의 조사
+        XCTAssertEqual(LineJoiner.join("변화”(가 12:2)를", "받은 사람"), "변화”(가 12:2)를 받은 사람")
+    }
+
+    func testRunningFooterWithGluedPageNumberIsRemoved() {
+        // 쪽번호가 제목에 붙어 읽힌 쪽("142여름…")과 따로 읽힌 쪽("144" + "여름…")이 섞여 있다.
+        var pages: [RawPage] = []
+        for i in 0..<4 {
+            var lines = [
+                line("본문 \(i) 첫째 줄은 끝까지 차 있고", x: 0.05, to: 0.95, y: 0.30),
+                line("둘째 줄에서 끝납니다.", x: 0.05, to: 0.50, y: 0.336),
+            ]
+            switch i {
+            case 0:
+                lines.append(line("142여름 이야기 모음", x: 0.05, to: 0.40, y: 1.34))
+            case 2:
+                lines.append(line("144", x: 0.05, to: 0.08, y: 1.34))
+                lines.append(line("여름 이야기 모음", x: 0.10, to: 0.40, y: 1.34))
+            default:
+                lines.append(line("작은 소제목 하나 \(142 + i)", x: 0.60, to: 0.95, y: 1.34))
+            }
+            pages.append(RawPage(index: i, height: pageH, lines: lines, source: .ocr))
+        }
+        let text = DocumentBuilder.build(pages: pages).text
+        XCTAssertFalse(text.contains("이야기 모음"), text)
+        XCTAssertFalse(text.contains("소제목 하나"), text)
+        XCTAssertFalse(text.contains("144"), text)
+        XCTAssertTrue(text.contains("본문 3 첫째 줄은"), text)
+    }
+
+    func testNarrowRunOfLinesIsStillOneParagraph() {
+        // 그림 옆처럼 글 폭이 좁아진 구간: 오른쪽 끝이 서로 나란하면 짧은 줄이 아니다.
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("좁은 구간의 첫 줄이 여기까지 오고", x: 0.05, to: 0.60, y: 0.200),
+            line("둘째 줄도 같은 자리에서 끝나며", x: 0.05, to: 0.60, y: 0.236),
+            line("셋째 줄까지 폭이 좁다가 그다음에", x: 0.05, to: 0.60, y: 0.272),
+            line("넓은 구간으로 돌아와 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.308),
+            line("한 줄 더 오른쪽 끝까지 이어진 뒤에", x: 0.05, to: 0.95, y: 0.344),
+            line("끝납니다.", x: 0.05, to: 0.25, y: 0.380),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).contains("\n"), text)
+        XCTAssertTrue(text.contains("좁은 구간의 첫 줄이"), text)
+        XCTAssertTrue(text.hasSuffix("끝납니다.\n"), text)
+    }
+
     func testEndsTerminal() {
         XCTAssertTrue(LineJoiner.endsTerminal("그렇게 말했습니다.7"))
         XCTAssertTrue(LineJoiner.endsTerminal("그렇지 않겠지요.”"))

@@ -29,7 +29,8 @@ enum ParagraphBuilder {
     static let indentMax = 6.0
     static let shortBy = 2.0
 
-    static func build(pages: [(index: Int, segments: [Segment])], structure: Bool) -> [Paragraph] {
+    static func build(pages: [(index: Int, segments: [Segment])], structure: Bool,
+                      lexicon: Lexicon? = nil) -> [Paragraph] {
         var out: [Paragraph] = []
         var nextBlockID = 0
 
@@ -39,10 +40,11 @@ enum ParagraphBuilder {
 
             for segment in page.segments {
                 let paragraphs = build(segment: segment, pageIndex: page.index, bodyH: bodyH,
-                                       structure: structure, nextBlockID: &nextBlockID)
+                                       structure: structure, lexicon: lexicon,
+                                       nextBlockID: &nextBlockID)
                 for (i, p) in paragraphs.enumerated() {
                     if i == 0, let prev = out.last, continues(prev, p) {
-                        out[out.count - 1].text = LineJoiner.join(prev.text, p.text)
+                        out[out.count - 1].text = LineJoiner.join(prev.text, p.text, lexicon: lexicon)
                         out[out.count - 1].lastRowFull = p.lastRowFull
                     } else {
                         out.append(p)
@@ -65,7 +67,8 @@ enum ParagraphBuilder {
     }
 
     private static func build(segment: Segment, pageIndex: Int, bodyH: Double,
-                              structure: Bool, nextBlockID: inout Int) -> [Paragraph] {
+                              structure: Bool, lexicon: Lexicon?,
+                              nextBlockID: inout Int) -> [Paragraph] {
         let rows = segment.rows
         guard !rows.isEmpty else { return [] }
         let colL = rows.map { $0.box.minX }.min() ?? 0
@@ -125,8 +128,15 @@ enum ParagraphBuilder {
                 let d = row.box.minX - refL
                 return d > indentMin * bodyH && d < indentMax * bodyH
             }
-            func short(_ row: Row) -> Bool {
-                refR - row.box.maxX > shortBy * bodyH
+            /// 문단의 마지막 줄처럼 오른쪽이 비어 있는 줄인지.
+            /// 이웃 줄과 오른쪽 끝이 나란하면 글 폭이 좁아진 구간일 뿐이므로 짧은 줄로 보지 않는다.
+            func short(_ i: Int) -> Bool {
+                let row = block[i]
+                guard refR - row.box.maxX > shortBy * bodyH else { return false }
+                for j in [i - 1, i + 1] where j >= 0 && j < block.count {
+                    if abs(block[j].box.maxX - row.box.maxX) < 0.7 * bodyH { return false }
+                }
+                return true
             }
 
             var text = block[0].text
@@ -134,7 +144,7 @@ enum ParagraphBuilder {
             for i in 1..<max(block.count, 1) {
                 let prev = block[i - 1]
                 let row = block[i]
-                let prevShort = short(prev)
+                let prevShort = short(i - 1)
                 if indented(row) || (prevShort && LineJoiner.endsTerminal(prev.text)) {
                     out.append(Paragraph(kind: kind, text: text, pageIndex: pageIndex,
                                          blockID: blockID, startsIndented: startIndented,
@@ -146,12 +156,12 @@ enum ParagraphBuilder {
                     // 짧게 끝났지만 문장이 끝나지 않았다: 목록·시 등일 수 있으니 줄바꿈 유지
                     text += "\n" + row.text
                 } else {
-                    text = LineJoiner.join(text, row.text)
+                    text = LineJoiner.join(text, row.text, lexicon: lexicon)
                 }
             }
             out.append(Paragraph(kind: kind, text: text, pageIndex: pageIndex,
                                  blockID: blockID, startsIndented: startIndented,
-                                 lastRowFull: !short(block[block.count - 1]),
+                                 lastRowFull: !short(block.count - 1),
                                  blockInset: blockInset, blockRowCount: block.count))
         }
         return out
