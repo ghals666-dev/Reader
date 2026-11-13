@@ -7,6 +7,7 @@ let usage = """
 
   --no-page-markers   [p.N] 쪽 마커를 넣지 않는다
   --plain             소제목(##)·인용문(>) 표시를 넣지 않는다
+  --no-header         맨 위의 제목·표시 안내를 넣지 않는다
   --keep-noise        각주 번호 등 인식 잡음을 지우지 않는다
   --force-ocr         텍스트 레이어가 있어도 OCR한다
   --overwrite         이미 txt가 있어도 다시 만든다
@@ -22,6 +23,7 @@ for arg in CommandLine.arguments.dropFirst() {
     case "--no-page-markers": options.build.pageMarkers = false
     case "--plain": options.build.structureMarkers = false
     case "--keep-noise": options.build.cleanNoise = false
+    case "--no-header": options.build.header = false
     case "--force-ocr": options.forceOCR = true
     case "--overwrite": options.overwrite = true
     case "--stdout": toStdout = true
@@ -47,7 +49,8 @@ for pdf in pdfs {
     if toStdout {
         do {
             let pages = try PDFTextExtractor(forceOCR: options.forceOCR).extract(url: pdf) ?? []
-            let result = DocumentBuilder.build(pages: pages, options: options.build)
+            let result = DocumentBuilder.build(pages: pages, options: options.build,
+                                               title: pdf.deletingPathExtension().lastPathComponent)
             print(result.text, terminator: "")
             let ocr = pages.filter { $0.source == .ocr }.count
             report("\(pdf.lastPathComponent): \(pages.count)쪽 (OCR \(ocr)쪽)")
@@ -63,6 +66,7 @@ for pdf in pdfs {
         if !s.lowConfidencePages.isEmpty {
             note += " | 인식이 불확실한 쪽: \(s.lowConfidencePages.map(String.init).joined(separator: ", "))"
         }
+        if s.textLayerRejected { note += " | 텍스트 레이어 품질이 낮아 OCR로 읽음" }
         if !s.emptyPages.isEmpty {
             note += " | 빈 쪽: \(s.emptyPages.map(String.init).joined(separator: ", "))"
         }

@@ -48,10 +48,13 @@ public enum LineJoiner {
     static let weakHeads: Set<String> = ["이", "다", "나"]
 
     /// 앞 줄 마지막 낱말이 이 글자로 끝나면 낱말이 끝난 것으로 본다.
-    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가록되")
+    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가록되인")
 
     /// 조사로 끝난 것으로 보이는 글자. 뒤에 '하다' 꼴이 와도 띄운다("숙제를 했다").
     static let particleFinals: Set<Character> = Set("을를은는이가도만에게히로와과")
+
+    /// 홀로 낱말로 쓰는 한 글자(관형사·부사·의존명사)
+    static let standaloneSyllables: Set<Character> = Set("이그저한두세내네제더잘참왜수것때안못늘곧즉좀또및각온전매몇첫새옛큰")
 
     /// 앞 줄이 이 낱말로 끝나면 뒤는 새 낱말이다.
     static let standaloneWords: Set<String> = [
@@ -65,7 +68,7 @@ public enum LineJoiner {
     static let closersBefore: Set<Character> = Set(".,!?:;)]}”’」』》〉%…")
     static let closingQuotes: Set<Character> = Set("”’\"')」』》〉]")
 
-    public static func join(_ first: String, _ second: String) -> String {
+    public static func join(_ first: String, _ second: String, lexicon: Lexicon? = nil) -> String {
         var a = first.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = second.trimmingCharacters(in: .whitespacesAndNewlines)
         if a.isEmpty { return b }
@@ -79,10 +82,10 @@ public enum LineJoiner {
                 return a + b
             }
         }
-        return a + separator(a, b) + b
+        return a + separator(a, b, lexicon: lexicon) + b
     }
 
-    static func separator(_ a: String, _ b: String) -> String {
+    static func separator(_ a: String, _ b: String, lexicon: Lexicon? = nil) -> String {
         guard let last = a.last, let first = b.first else { return "" }
         if openers.contains(last) { return "" }
         if closersBefore.contains(first) { return "" }
@@ -95,8 +98,26 @@ public enum LineJoiner {
             for ch in a.reversed() {
                 if isHangul(ch) { tail.insert(ch, at: tail.startIndex) } else { break }
             }
-            let whole = tail.count >= 2
+            // 한 글자라도 앞이 문장부호면("(가 1:2)를") 낱말의 첫 글자가 아니라 조사다.
+            var whole = tail.count >= 2
+            if tail.count == 1, a.count >= 2 {
+                let before = a[a.index(a.endIndex, offsetBy: -2)]
+                if !before.isWhitespace { whole = true }
+            }
             if gluedPairs.contains(tail + "|" + head) { return "" }
+
+            // 문서 안에서 찾은 근거
+            var tailWord: String?
+            var headWord: String?
+            if let lexicon, !lexicon.isEmpty {
+                if let token = a.split(whereSeparator: { $0.isWhitespace }).last {
+                    tailWord = Lexicon.hangulCore(token)
+                }
+                if let token = b.split(whereSeparator: { $0.isWhitespace }).first {
+                    headWord = Lexicon.hangulCore(token)
+                }
+                if let t = tailWord, let h = headWord, lexicon.contains(t + h) { return "" }
+            }
             // "말" + "역시": 다음 줄이 홀로 쓰는 낱말로 시작하면 띄운다.
             if standaloneWords.contains(head) { return " " }
             if isVerbHead(head) {
@@ -111,6 +132,16 @@ public enum LineJoiner {
             if weak {
                 let rest = b.dropFirst(head.count)
                 if let next = rest.first, !next.isWhitespace { return "" }
+            }
+            if let lexicon, let t = tailWord, let h = headWord, h.count >= 2,
+               lexicon.contains(t), lexicon.contains(h) {
+                // 앞 조각이 한 글자면 우연히 낱말과 같을 수 있다. 뒤 조각이 "한 글자 + 조사" 꼴이면
+                // ("가" + "기를", "시" + "대는") 한 낱말이 잘린 것으로 보고 근거로 삼지 않는다.
+                var trusted = t.count >= 2 || standaloneSyllables.contains(last)
+                if !trusted, let end = h.last {
+                    trusted = !(h.count == 2 && (particleFinals.contains(end) || end == "의"))
+                }
+                if trusted { return " " }
             }
             if whole && wordFinals.contains(last) { return " " }
             return ""

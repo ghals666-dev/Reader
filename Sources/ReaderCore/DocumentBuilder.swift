@@ -4,12 +4,15 @@ import Foundation
 public enum DocumentBuilder {
     public static let lowConfidenceThreshold = 0.5
 
-    public static func build(pages: [RawPage], options: BuildOptions = BuildOptions()) -> BuildResult {
+    public static func build(pages: [RawPage], options: BuildOptions = BuildOptions(),
+                             title: String? = nil) -> BuildResult {
         let clean = HeaderFooterFilter.clean(pages)
         let labels = pageLabels(clean)
 
         let layout = clean.map { (index: $0.index, segments: ColumnLayout.segments(for: $0.lines)) }
-        let paragraphs = ParagraphBuilder.build(pages: layout, structure: options.structureMarkers)
+        let lexicon = Lexicon(rows: layout.flatMap { $0.segments.flatMap { $0.rows.map { $0.text } } })
+        let paragraphs = ParagraphBuilder.build(pages: layout, structure: options.structureMarkers,
+                                                lexicon: lexicon)
 
         var chunks: [String] = []
         var currentPage: Int?
@@ -63,9 +66,26 @@ public enum DocumentBuilder {
         }.map { $0.label }
         let empty = reports.filter { $0.lineCount == 0 }.map { $0.label }
 
+        if options.header, let title, !chunks.isEmpty {
+            chunks.insert(contentsOf: header(title: title, pageCount: pages.count, options: options), at: 0)
+        }
         let body = chunks.joined(separator: "\n\n")
         return BuildResult(text: body.isEmpty ? "" : body + "\n",
                            pages: reports, lowConfidencePages: low, emptyPages: empty)
+    }
+
+    /// 글을 읽을 AI가 표시의 뜻을 바로 알 수 있도록 맨 위에 붙이는 안내.
+    static func header(title: String, pageCount: Int, options: BuildOptions) -> [String] {
+        var notes = ["이 글은 PDF에서 자동으로 옮긴 것입니다.", "전체 \(pageCount)쪽."]
+        var marks: [String] = []
+        if options.pageMarkers { marks.append("[p.N]은 원본의 쪽 번호") }
+        if options.structureMarkers {
+            marks.append("##는 소제목")
+            marks.append(">는 인용문")
+        }
+        if !marks.isEmpty { notes.append(marks.joined(separator: ", ") + " 표시입니다.") }
+        notes.append("글자 인식과 띄어쓰기에 오류가 조금 섞여 있을 수 있습니다.")
+        return ["# " + title, "(" + notes.joined(separator: " ") + ")"]
     }
 
     /// 인쇄된 쪽번호가 PDF 순번과 일정한 차이로 이어지면 그 번호를 쓴다.

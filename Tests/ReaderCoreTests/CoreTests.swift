@@ -243,6 +243,195 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(marker.upperBound <= body.lowerBound, text)
     }
 
+    func testLexiconDecidesSpacing() {
+        let lexicon = Lexicon(rows: ["그는 결코 물러서지 않았다", "거기에 정죄함이 없다", "우리 공동체는 하나다"])
+        XCTAssertTrue(lexicon.contains("결코"))
+        XCTAssertFalse(lexicon.contains("그는"), "줄의 첫 낱말은 넣지 않는다")
+        // 두 조각이 각각 낱말로 나오면 띄운다
+        XCTAssertEqual(LineJoiner.join("이제는 결코", "정죄함이 없다", lexicon: lexicon), "이제는 결코 정죄함이 없다")
+        // 붙인 꼴이 낱말로 나오면 붙인다
+        XCTAssertEqual(LineJoiner.join("바로 우리 공동", "체는 하나다", lexicon: lexicon), "바로 우리 공동체는 하나다")
+        // 앞 조각이 한 글자일 때: 뒤가 "한 글자 + 조사"면 잘린 낱말로 보고, 아니면 띄운다
+        let singles = Lexicon(rows: ["저기 가 보자 얼른", "함께 기를 쓰고 달렸다", "정말 더 좋은 날이다",
+                                     "아주 중요한 일이다", "그런 말 하지 마라", "문제 자체가 정말 어렵다",
+                                     "모은 돈 걱정 없이 쓴다"])
+        XCTAssertEqual(LineJoiner.join("그 말", "자체가 틀렸다", lexicon: singles), "그 말 자체가 틀렸다")
+        XCTAssertEqual(LineJoiner.join("늘 하던 돈", "걱정 이야기", lexicon: singles), "늘 하던 돈 걱정 이야기")
+        XCTAssertEqual(LineJoiner.join("집에 가", "기를 바랐다", lexicon: singles), "집에 가기를 바랐다")
+        XCTAssertEqual(LineJoiner.join("이것이 더", "중요한 일이다", lexicon: singles), "이것이 더 중요한 일이다")
+        // 근거가 없으면 이전 규칙대로
+        XCTAssertEqual(LineJoiner.join("이제는 결코", "정죄함이 없다"), "이제는 결코정죄함이 없다")
+        // 괄호 뒤의 조사
+        XCTAssertEqual(LineJoiner.join("변화”(가 12:2)를", "받은 사람"), "변화”(가 12:2)를 받은 사람")
+    }
+
+    func testRunningFooterWithGluedPageNumberIsRemoved() {
+        // 쪽번호가 제목에 붙어 읽힌 쪽("142여름…")과 따로 읽힌 쪽("144" + "여름…")이 섞여 있다.
+        var pages: [RawPage] = []
+        for i in 0..<4 {
+            var lines = [
+                line("본문 \(i) 첫째 줄은 끝까지 차 있고", x: 0.05, to: 0.95, y: 0.30),
+                line("둘째 줄에서 끝납니다.", x: 0.05, to: 0.50, y: 0.336),
+            ]
+            switch i {
+            case 0:
+                lines.append(line("142여름 이야기 모음", x: 0.05, to: 0.40, y: 1.34))
+            case 2:
+                lines.append(line("144", x: 0.05, to: 0.08, y: 1.34))
+                lines.append(line("여름 이야기 모음", x: 0.10, to: 0.40, y: 1.34))
+            default:
+                lines.append(line("작은 소제목 하나 \(142 + i)", x: 0.60, to: 0.95, y: 1.34))
+            }
+            pages.append(RawPage(index: i, height: pageH, lines: lines, source: .ocr))
+        }
+        let text = DocumentBuilder.build(pages: pages).text
+        XCTAssertFalse(text.contains("이야기 모음"), text)
+        XCTAssertFalse(text.contains("소제목 하나"), text)
+        XCTAssertFalse(text.contains("144"), text)
+        XCTAssertTrue(text.contains("본문 3 첫째 줄은"), text)
+    }
+
+    func testNarrowRunOfLinesIsStillOneParagraph() {
+        // 그림 옆처럼 글 폭이 좁아진 구간: 오른쪽 끝이 서로 나란하면 짧은 줄이 아니다.
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("좁은 구간의 첫 줄이 여기까지 오고", x: 0.05, to: 0.60, y: 0.200),
+            line("둘째 줄도 같은 자리에서 끝나며", x: 0.05, to: 0.60, y: 0.236),
+            line("셋째 줄까지 폭이 좁다가 그다음에", x: 0.05, to: 0.60, y: 0.272),
+            line("넓은 구간으로 돌아와 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.308),
+            line("한 줄 더 오른쪽 끝까지 이어진 뒤에", x: 0.05, to: 0.95, y: 0.344),
+            line("끝납니다.", x: 0.05, to: 0.25, y: 0.380),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).contains("\n"), text)
+        XCTAssertTrue(text.contains("좁은 구간의 첫 줄이"), text)
+        XCTAssertTrue(text.hasSuffix("끝납니다.\n"), text)
+    }
+
+    func testSlightlySkewedPageStaysOneParagraph() {
+        // 기울어진 스캔: 아래로 갈수록 줄 전체가 오른쪽으로 조금씩 밀린다.
+        var lines: [TextLine] = []
+        for i in 0..<16 {
+            let shift = 0.0015 * Double(i)
+            let y = 0.2 + pitch * Double(i)
+            if i == 15 {
+                lines.append(line("마지막 줄입니다.", x: 0.05 + shift, to: 0.40 + shift, y: y))
+            } else {
+                lines.append(line("기울어진 쪽의 \(i)번째 줄은 끝까지 이어지고", x: 0.05 + shift, to: 0.95 + shift, y: y))
+            }
+        }
+        let page = RawPage(index: 0, height: pageH, lines: lines, source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).contains("\n"), text)
+    }
+
+    func testBlocksWithDifferentLineSpacingAreNotShattered() {
+        // 줄 간격이 촘촘한 덩어리와 넓은 덩어리가 한 쪽에 있다.
+        var lines: [TextLine] = []
+        for i in 0..<6 {
+            let y = 0.2 + 0.030 * Double(i)
+            lines.append(i == 5
+                ? line("촘촘한 덩어리가 끝납니다.", x: 0.05, to: 0.40, y: y)
+                : line("촘촘한 덩어리의 \(i)번째 줄은 끝까지 이어지고", x: 0.05, to: 0.95, y: y))
+        }
+        for i in 0..<6 {
+            let y = 0.44 + 0.045 * Double(i)
+            lines.append(i == 5
+                ? line("넓은 덩어리가 끝납니다.", x: 0.05, to: 0.40, y: y)
+                : line("넓은 덩어리의 \(i)번째 줄은 끝까지 이어지고", x: 0.05, to: 0.95, y: y))
+        }
+        let page = RawPage(index: 0, height: pageH, lines: lines, source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        let chunks = text.components(separatedBy: "\n\n").filter { !$0.isEmpty }
+        XCTAssertEqual(chunks.count, 2, text)
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).replacingOccurrences(of: "\n\n", with: "").contains("\n"), text)
+    }
+
+    func testLeftAlignedHeading() {
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("앞 문단의 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.100),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.136),
+            line("둘째 마당 이야기", x: 0.05, to: 0.30, y: 0.230),
+            line("제목 아래 본문도 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.320),
+            line("한 줄 더 끝까지 이어진 다음", x: 0.05, to: 0.95, y: 0.356),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.392),
+            // 문장으로 끝나는 짧은 한 줄은 소제목이 아니다
+            line("짧지만 문장입니다.", x: 0.05, to: 0.30, y: 0.480),
+            line("그 뒤의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.570),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.606),
+            // 쪽의 마지막 덩어리는 뒤에 내용이 없으므로 소제목으로 보지 않는다
+            line("맨 끝의 짧은 줄", x: 0.05, to: 0.30, y: 0.700),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertTrue(text.contains("\n\n## 둘째 마당 이야기\n\n"), text)
+        XCTAssertFalse(text.contains("## 짧지만"), text)
+        XCTAssertFalse(text.contains("## 맨 끝의"), text)
+        XCTAssertEqual(text.components(separatedBy: "## ").count - 1, 1, text)
+    }
+
+    func testInsetTitleAtTopOfPageIsHeading() {
+        // 쪽 맨 위에 들여 짠 제목이 있고 그 아래 본문이 이어진다(하루 한 쪽짜리 묵상집 모양).
+        let pages = (0..<2).map { i in
+            RawPage(index: i, height: pageH, lines: [
+                line(i == 0 ? "아침에 걷는 길" : "저녁에 부르는 노래", x: 0.09, to: 0.35, y: 0.160),
+                line("그날의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.250),
+                line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.286),
+                line("끝납니다.", x: 0.05, to: 0.30, y: 0.322),
+            ], source: .ocr)
+        }
+        let text = DocumentBuilder.build(pages: pages, options: plain()).text
+        XCTAssertTrue(text.contains("## 아침에 걷는 길\n\n"), text)
+        XCTAssertTrue(text.contains("## 저녁에 부르는 노래\n\n"), text)
+    }
+
+    func testUnfinishedQuoteStillContinuesIntoTitleLikeLine() {
+        // 앞 쪽의 인용문이 끝나지 않았다면, 다음 쪽 첫머리의 들여 짠 짧은 줄은 소제목이 아니라 인용문의 끝이다.
+        let p1 = RawPage(index: 0, height: pageH, lines: [
+            line("본문 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.100),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.136),
+            line("인용한 글은 길게 이어지다가", x: 0.07, to: 0.95, y: 0.230),
+            line("쪽이 바뀌는 곳에서도 여전히", x: 0.07, to: 0.95, y: 0.266),
+        ], source: .ocr)
+        let p2 = RawPage(index: 1, height: pageH, lines: [
+            line("끝나지 않은 채 남은 줄", x: 0.07, to: 0.40, y: 0.100),
+            line("다음 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.190),
+            line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.226),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.262),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [p1, p2], options: plain()).text
+        XCTAssertFalse(text.contains("##"), text)
+        XCTAssertTrue(text.contains("여전히 끝나지 않은 채 남은 줄"), text)
+    }
+
+    func testTitleShapes() {
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("불편한 예배"))
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("주님을 사랑하고 있습니까?"))
+        XCTAssertTrue(ParagraphBuilder.looksLikeTitle("3장 여름 이야기"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("그렇게 말했습니다."))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("“어서 오세요”"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("• 첫째 항목"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("김 아무개, 어느 신문 기사 2023"))
+        XCTAssertFalse(ParagraphBuilder.looksLikeTitle("12"))
+    }
+
+    func testHeaderExplainsMarkers() {
+        let page = RawPage(index: 0, height: pageH, lines: [
+            line("본문 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.30),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.336),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], title: "시험 문서").text
+        XCTAssertTrue(text.hasPrefix("# 시험 문서\n\n(이 글은 PDF에서"), text)
+        XCTAssertTrue(text.contains("전체 1쪽."), text)
+        XCTAssertTrue(text.contains("[p.N]은 원본의 쪽 번호, ##는 소제목, >는 인용문 표시입니다."), text)
+
+        let bare = DocumentBuilder.build(
+            pages: [page], options: BuildOptions(pageMarkers: false, structureMarkers: false), title: "시험 문서").text
+        XCTAssertFalse(bare.contains("표시입니다"), bare)
+        let none = DocumentBuilder.build(pages: [page], options: BuildOptions(header: false), title: "시험 문서").text
+        XCTAssertFalse(none.contains("# 시험 문서"), none)
+        // 제목을 모르면 머리말을 넣지 않는다
+        XCTAssertFalse(DocumentBuilder.build(pages: [page]).text.contains("자동으로 옮긴"))
+    }
+
     func testEndsTerminal() {
         XCTAssertTrue(LineJoiner.endsTerminal("그렇게 말했습니다.7"))
         XCTAssertTrue(LineJoiner.endsTerminal("그렇지 않겠지요.”"))

@@ -74,11 +74,15 @@ public struct BuildOptions: Sendable {
 
     /// 본문에 섞인 각주 번호와 깨진 말줄임표 같은 인식 잡음을 지운다.
     public var cleanNoise = true
+    /// 파일 맨 위에 제목과 표시 설명을 넣는다(제목을 알 때만).
+    public var header = true
 
-    public init(pageMarkers: Bool = true, structureMarkers: Bool = true, cleanNoise: Bool = true) {
+    public init(pageMarkers: Bool = true, structureMarkers: Bool = true, cleanNoise: Bool = true,
+                header: Bool = true) {
         self.pageMarkers = pageMarkers
         self.structureMarkers = structureMarkers
         self.cleanNoise = cleanNoise
+        self.header = header
     }
 }
 
