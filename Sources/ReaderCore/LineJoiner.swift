@@ -20,6 +20,7 @@ public enum LineJoiner {
         "들", "들이", "들은", "들을", "들의", "들에게", "들과", "들도",
         "적", "적인", "적으로", "지는", "지요", "죠", "까요", "네요", "군요", "세요", "십시오",
         "이라", "이라면", "에요", "예요", "이에요", "만은", "만이",
+        "어", "어서", "어야", "었다", "었습니다", "었고", "었던", "었을", "었지만", "었으니",
     ]
 
     /// '하다·되다' 꼴. 앞말이 조사로 끝나지 않았을 때만 붙인다("공부" + "했다" → "공부했다").
@@ -29,11 +30,25 @@ public enum LineJoiner {
         "되는", "되고", "되어", "되었다", "된다", "됩니다",
     ]
 
+    /// '하다·되다'의 활용으로 시작하는 말머리
+    static let verbPrefixes = ["하였", "하셨", "하시", "했", "합니", "하십", "하겠", "하려", "하던",
+                               "하도록", "하면서", "하기에", "하므로", "되었", "되어", "됩니"]
+
+    /// 조사처럼 보이는 글자로 끝나지만 '하다'가 붙는 명사("기도" + "하였다" → "기도하였다")
+    static let hadaNouns: Set<String> = ["기도", "시도", "지도", "인도", "보도", "의도", "유도", "주도"]
+
+    /// 두 낱말처럼 보이지만 붙여 쓰는 짝("너무" + "나도" → "너무나도")
+    static let gluedPairs: Set<String> = ["너무|나도", "너무|나"]
+
+    static func isVerbHead(_ head: String) -> Bool {
+        verbHeads.contains(head) || verbPrefixes.contains { head.hasPrefix($0) }
+    }
+
     /// 홀로 낱말이 되기도 하는 한 글자 조사·어미("이 사람", "다 왔다", "나는").
     static let weakHeads: Set<String> = ["이", "다", "나"]
 
     /// 앞 줄 마지막 낱말이 이 글자로 끝나면 낱말이 끝난 것으로 본다.
-    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가록")
+    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가록되")
 
     /// 조사로 끝난 것으로 보이는 글자. 뒤에 '하다' 꼴이 와도 띄운다("숙제를 했다").
     static let particleFinals: Set<Character> = Set("을를은는이가도만에게히로와과")
@@ -81,7 +96,11 @@ public enum LineJoiner {
                 if isHangul(ch) { tail.insert(ch, at: tail.startIndex) } else { break }
             }
             let whole = tail.count >= 2
-            if verbHeads.contains(head) {
+            if gluedPairs.contains(tail + "|" + head) { return "" }
+            // "말" + "역시": 다음 줄이 홀로 쓰는 낱말로 시작하면 띄운다.
+            if standaloneWords.contains(head) { return " " }
+            if isVerbHead(head) {
+                if hadaNouns.contains(tail) { return "" }
                 return whole && particleFinals.contains(last) ? " " : ""
             }
             let weak = weakHeads.contains(head)
@@ -97,7 +116,7 @@ public enum LineJoiner {
             return ""
         }
         if isHangul(first) && closingQuotes.contains(last) {
-            let attaches = strongHeads.contains(head) || weakHeads.contains(head) || verbHeads.contains(head)
+            let attaches = strongHeads.contains(head) || weakHeads.contains(head) || isVerbHead(head)
             return attaches ? "" : " "
         }
         if isIdeograph(last) && (isIdeograph(first) || isHangul(first)) { return "" }

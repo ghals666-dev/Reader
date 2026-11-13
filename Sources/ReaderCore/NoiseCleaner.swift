@@ -4,6 +4,7 @@ import Foundation
 public enum NoiseCleaner {
     static let dots: Set<Character> = Set("·•∙⋅")
     static let sentenceEnd: Set<Character> = Set(".!?")
+    static let symbols: Set<Character> = Set("®©™")
     static let closingQuotes: Set<Character> = Set("”’\"'」』")
 
     public static func clean(_ text: String) -> String {
@@ -33,6 +34,19 @@ public enum NoiseCleaner {
         var i = 0
         while i < chars.count {
             let ch = chars[i]
+            let following: Character? = i + 1 < chars.count ? chars[i + 1] : nil
+            let endsHere = following == nil || following!.isWhitespace
+            if let before = out.last {
+                // 각주 번호를 기호로 잘못 읽은 것: "같아요.®", "말합니다.?"
+                if symbols.contains(ch), sentenceEnd.contains(before) || closingQuotes.contains(before) {
+                    i += 1
+                    continue
+                }
+                if ch == "?", before == ".", endsHere, out.count >= 2, LineJoiner.isHangul(out[out.count - 2]) {
+                    i += 1
+                    continue
+                }
+            }
             guard ch.isASCII, ch.isNumber, let before = out.last else {
                 out.append(ch)
                 i += 1

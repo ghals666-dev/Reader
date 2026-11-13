@@ -197,6 +197,14 @@ final class CoreTests: XCTestCase {
         // '하다' 꼴
         XCTAssertEqual(LineJoiner.join("열심히 공부", "했다"), "열심히 공부했다")
         XCTAssertEqual(LineJoiner.join("어제 숙제를", "했다"), "어제 숙제를 했다")
+        XCTAssertEqual(LineJoiner.join("날마다 기도", "하였다"), "날마다 기도하였다")
+        XCTAssertEqual(LineJoiner.join("어제 숙제를", "하였다"), "어제 숙제를 하였다")
+        // 붙여 쓰는 짝과 홀로 쓰는 말머리
+        XCTAssertEqual(LineJoiner.join("정말 너무", "나도 좋았다"), "정말 너무나도 좋았다")
+        XCTAssertEqual(LineJoiner.join("정말 너무", "힘들었다"), "정말 너무 힘들었다")
+        XCTAssertEqual(LineJoiner.join("그 말", "역시 옳았다"), "그 말 역시 옳았다")
+        XCTAssertEqual(LineJoiner.join("그렇게 하시되", "천천히 하세요"), "그렇게 하시되 천천히 하세요")
+        XCTAssertEqual(LineJoiner.join("집이 오래되", "었다"), "집이 오래되었다")
     }
 
     func testNoiseCleaning() {
@@ -204,6 +212,9 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(NoiseCleaner.clean("좋은 것”4이라고 했다"), "좋은 것”이라고 했다")
         XCTAssertEqual(NoiseCleaner.clean("끝입니다.12"), "끝입니다.")
         XCTAssertEqual(NoiseCleaner.clean("먼저 ·•(여럿) 그리고 •··."), "먼저 …(여럿) 그리고 ….")
+        XCTAssertEqual(NoiseCleaner.clean("그런 것 같아요.® 다음"), "그런 것 같아요. 다음")
+        XCTAssertEqual(NoiseCleaner.clean("그렇게 말합니다.? 다음"), "그렇게 말합니다. 다음")
+        XCTAssertEqual(NoiseCleaner.clean("정말입니까? 네."), "정말입니까? 네.")
         // 숫자가 내용인 경우는 그대로
         XCTAssertEqual(NoiseCleaner.clean("2012년 3월에 1.2 판이 나왔다."), "2012년 3월에 1.2 판이 나왔다.")
         XCTAssertEqual(NoiseCleaner.clean("(가 8:26). 그리고"), "(가 8:26). 그리고")
