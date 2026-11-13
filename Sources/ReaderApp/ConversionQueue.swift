@@ -39,6 +39,7 @@ final class ConversionQueue: ObservableObject {
     @Published var isRunning = false
     @Published var pageMarkers = true
     @Published var structureMarkers = true
+    @Published var cleanNoise = true
     @Published var forceOCR = false
     @Published var overwrite = false
 
@@ -73,6 +74,7 @@ final class ConversionQueue: ObservableObject {
         var options = ConversionOptions()
         options.build.pageMarkers = pageMarkers
         options.build.structureMarkers = structureMarkers
+        options.build.cleanNoise = cleanNoise
         options.forceOCR = forceOCR
         options.overwrite = overwrite
 

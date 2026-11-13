@@ -72,9 +72,13 @@ public struct BuildOptions: Sendable {
     /// 소제목(`## `)과 인용문(`> `) 표시를 넣는다.
     public var structureMarkers = true
 
-    public init(pageMarkers: Bool = true, structureMarkers: Bool = true) {
+    /// 본문에 섞인 각주 번호와 깨진 말줄임표 같은 인식 잡음을 지운다.
+    public var cleanNoise = true
+
+    public init(pageMarkers: Bool = true, structureMarkers: Bool = true, cleanNoise: Bool = true) {
         self.pageMarkers = pageMarkers
         self.structureMarkers = structureMarkers
+        self.cleanNoise = cleanNoise
     }
 }
 

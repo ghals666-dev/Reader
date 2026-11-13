@@ -16,6 +16,9 @@ struct Paragraph {
     var startsIndented: Bool
     /// 마지막 줄이 단의 오른쪽 끝까지 차 있는지 (다음 단·쪽으로 이어질 수 있는지)
     var lastRowFull: Bool
+    /// 덩어리 전체가 단의 왼쪽 끝보다 들여 짜여 있는지
+    var blockInset = false
+    var blockRowCount = 1
 }
 
 /// 줄을 문단으로 묶는다. 보수적으로 동작한다:
@@ -52,10 +55,13 @@ enum ParagraphBuilder {
 
     /// 앞 단·앞 쪽의 마지막 문단이 다음 단·쪽의 첫 문단으로 이어지는지.
     static func continues(_ prev: Paragraph, _ next: Paragraph) -> Bool {
-        guard prev.kind == next.kind, prev.kind != .heading else { return false }
-        guard prev.lastRowFull, !next.startsIndented else { return false }
+        guard prev.kind != .heading, next.kind != .heading else { return false }
         // 문장이 끝난 채로 넘어갔다면 새 문단일 수 있으므로 잇지 않는다.
-        return !LineJoiner.endsTerminal(prev.text)
+        guard prev.lastRowFull, !LineJoiner.endsTerminal(prev.text) else { return false }
+        if prev.kind == next.kind { return !next.startsIndented }
+        // 인용문의 마지막 한 줄만 다음 쪽으로 넘어온 경우: 한 줄뿐이라 인용문으로
+        // 분류되지 못했지만, 들여 짜여 있고 앞 인용문이 끝나지 않았으므로 이어 붙인다.
+        return prev.kind == .quote && next.kind == .body && next.blockInset && next.blockRowCount == 1
     }
 
     private static func build(segment: Segment, pageIndex: Int, bodyH: Double,
@@ -104,7 +110,8 @@ enum ParagraphBuilder {
             }
 
             let inset = bL - colL
-            let isQuote = inset > indentMin * bodyH
+            let blockInset = inset > indentMin * bodyH
+            let isQuote = blockInset
                 && rows.count > block.count
                 && (block.count >= 2 || blockH < 0.9 * bodyH)
             let kind: ParagraphKind = isQuote ? .quote : .body
@@ -131,7 +138,8 @@ enum ParagraphBuilder {
                 if indented(row) || (prevShort && LineJoiner.endsTerminal(prev.text)) {
                     out.append(Paragraph(kind: kind, text: text, pageIndex: pageIndex,
                                          blockID: blockID, startsIndented: startIndented,
-                                         lastRowFull: !prevShort))
+                                         lastRowFull: !prevShort,
+                                         blockInset: blockInset, blockRowCount: block.count))
                     text = row.text
                     startIndented = indented(row)
                 } else if prevShort {
@@ -143,7 +151,8 @@ enum ParagraphBuilder {
             }
             out.append(Paragraph(kind: kind, text: text, pageIndex: pageIndex,
                                  blockID: blockID, startsIndented: startIndented,
-                                 lastRowFull: !short(block[block.count - 1])))
+                                 lastRowFull: !short(block[block.count - 1]),
+                                 blockInset: blockInset, blockRowCount: block.count))
         }
         return out
     }

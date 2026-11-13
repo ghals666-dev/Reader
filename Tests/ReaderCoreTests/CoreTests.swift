@@ -182,6 +182,56 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(LineJoiner.join("끝났다.", "다음 문장"), "끝났다. 다음 문장")
     }
 
+    func testKoreanLineJoiningParticlesAndStandaloneWords() {
+        // 한 글자 어미
+        XCTAssertEqual(LineJoiner.join("집에 가면", "서 쉬었다"), "집에 가면서 쉬었다")
+        XCTAssertEqual(LineJoiner.join("힘을 얻는", "다. 그리고"), "힘을 얻는다. 그리고")
+        XCTAssertEqual(LineJoiner.join("그렇게 말하지", "요(웃음)"), "그렇게 말하지요(웃음)")
+        // 복수 '들' 뒤
+        XCTAssertEqual(LineJoiner.join("마을 사람들", "이 모였다"), "마을 사람들이 모였다")
+        XCTAssertEqual(LineJoiner.join("마을 사람들", "모두 모였다"), "마을 사람들 모두 모였다")
+        // 홀로 쓰는 낱말 뒤
+        XCTAssertEqual(LineJoiner.join("서로를 위해", "노래했다"), "서로를 위해 노래했다")
+        XCTAssertEqual(LineJoiner.join("일을 계속", "이어 갔다"), "일을 계속 이어 갔다")
+        XCTAssertEqual(LineJoiner.join("끝까지 가도록", "도왔다"), "끝까지 가도록 도왔다")
+        // '하다' 꼴
+        XCTAssertEqual(LineJoiner.join("열심히 공부", "했다"), "열심히 공부했다")
+        XCTAssertEqual(LineJoiner.join("어제 숙제를", "했다"), "어제 숙제를 했다")
+    }
+
+    func testNoiseCleaning() {
+        XCTAssertEqual(NoiseCleaner.clean("그렇습니다.3 다음 문장"), "그렇습니다. 다음 문장")
+        XCTAssertEqual(NoiseCleaner.clean("좋은 것”4이라고 했다"), "좋은 것”이라고 했다")
+        XCTAssertEqual(NoiseCleaner.clean("끝입니다.12"), "끝입니다.")
+        XCTAssertEqual(NoiseCleaner.clean("먼저 ·•(여럿) 그리고 •··."), "먼저 …(여럿) 그리고 ….")
+        // 숫자가 내용인 경우는 그대로
+        XCTAssertEqual(NoiseCleaner.clean("2012년 3월에 1.2 판이 나왔다."), "2012년 3월에 1.2 판이 나왔다.")
+        XCTAssertEqual(NoiseCleaner.clean("(가 8:26). 그리고"), "(가 8:26). 그리고")
+        XCTAssertEqual(NoiseCleaner.clean("모두 9년이나 걸렸다. 3 명이 왔다."), "모두 9년이나 걸렸다. 3 명이 왔다.")
+        XCTAssertEqual(NoiseCleaner.clean("가운뎃점 하나·는 그대로"), "가운뎃점 하나·는 그대로")
+    }
+
+    func testQuoteContinuesOntoNextPageAsSingleLine() {
+        let p1 = RawPage(index: 0, height: pageH, lines: [
+            line("본문 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.100),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.136),
+            line("인용한 글은 길게 이어지다가", x: 0.07, to: 0.95, y: 0.230),
+            line("쪽이 바뀌는 곳에서도 여전히", x: 0.07, to: 0.95, y: 0.266),
+        ], source: .ocr)
+        let p2 = RawPage(index: 1, height: pageH, lines: [
+            line("끝나지 않았습니다.", x: 0.07, to: 0.40, y: 0.100),
+            line("다음 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.190),
+            line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.226),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.262),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [p1, p2]).text
+        XCTAssertTrue(text.contains("> 인용한 글은 길게 이어지다가 쪽이 바뀌는 곳에서도 여전히 끝나지 않았습니다."), text)
+        guard let marker = text.range(of: "[p.2]"), let quoteEnd = text.range(of: "끝나지 않았습니다."),
+              let body = text.range(of: "다음 본문은") else { return XCTFail(text) }
+        XCTAssertTrue(quoteEnd.upperBound <= marker.lowerBound, text)
+        XCTAssertTrue(marker.upperBound <= body.lowerBound, text)
+    }
+
     func testEndsTerminal() {
         XCTAssertTrue(LineJoiner.endsTerminal("그렇게 말했습니다.7"))
         XCTAssertTrue(LineJoiner.endsTerminal("그렇지 않겠지요.”"))

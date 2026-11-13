@@ -10,27 +10,41 @@ public enum LineJoiner {
     /// 다음 줄이 이 말로 시작하면 앞 낱말에 붙는 조사·어미로 본다.
     static let strongHeads: Set<String> = [
         "은", "는", "을", "를", "의", "에", "와", "과", "께", "게", "럼", "인",
+        "가", "도", "만", "로", "서", "고", "요", "며", "란", "든", "야", "라", "지",
         "에서", "에게", "에는", "에도", "에서는", "에게서", "으로", "으로는", "으로서", "으로써",
         "로서", "로써", "로는", "부터", "까지", "처럼", "보다", "마다", "조차", "마저", "밖에",
         "이나", "이라도", "라도", "이며", "이고", "이라고", "라고", "이라는", "라는", "이란",
         "이지만", "지만", "는데", "인데", "으며", "으면", "면서", "으면서", "므로", "으므로",
-        "니다", "습니다", "입니다", "됩니다", "합니다", "습니까", "입니까",
+        "니다", "습니다", "입니다", "습니까", "입니까",
         "이다", "였다", "이었다", "였습니다", "이었습니다",
-        "하는", "하고", "하며", "하여", "해서", "했다", "했습니다", "한다", "하면", "하지",
-        "하기", "하게", "하다", "해야", "했고", "했던", "하신",
-        "되는", "되고", "되어", "되었다", "된다",
         "들", "들이", "들은", "들을", "들의", "들에게", "들과", "들도",
         "적", "적인", "적으로", "지는", "지요", "죠", "까요", "네요", "군요", "세요", "십시오",
         "이라", "이라면", "에요", "예요", "이에요", "만은", "만이",
     ]
 
-    /// 홀로 낱말이 되기도 하는 한 글자 조사·어미. 닫는 따옴표 뒤에서만 쓴다.
-    static let weakHeads: Set<String> = [
-        "이", "가", "도", "만", "다", "나", "고", "요", "며", "란", "로", "서", "든", "야", "라", "지",
+    /// '하다·되다' 꼴. 앞말이 조사로 끝나지 않았을 때만 붙인다("공부" + "했다" → "공부했다").
+    static let verbHeads: Set<String> = [
+        "하는", "하고", "하며", "하여", "해서", "했다", "했습니다", "한다", "합니다", "하면", "하지",
+        "하기", "하게", "하다", "해야", "했고", "했던", "하신",
+        "되는", "되고", "되어", "되었다", "된다", "됩니다",
     ]
 
+    /// 홀로 낱말이 되기도 하는 한 글자 조사·어미("이 사람", "다 왔다", "나는").
+    static let weakHeads: Set<String> = ["이", "다", "나"]
+
     /// 앞 줄 마지막 낱말이 이 글자로 끝나면 낱말이 끝난 것으로 본다.
-    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가")
+    static let wordFinals: Set<Character> = Set("은는을를에의도로고며면서게히다요한할된던만와과지이가록")
+
+    /// 조사로 끝난 것으로 보이는 글자. 뒤에 '하다' 꼴이 와도 띄운다("숙제를 했다").
+    static let particleFinals: Set<Character> = Set("을를은는이가도만에게히로와과")
+
+    /// 앞 줄이 이 낱말로 끝나면 뒤는 새 낱말이다.
+    static let standaloneWords: Set<String> = [
+        "위해", "대해", "통해", "인해", "향해", "계속", "무슨", "그때", "이때", "그러자", "역시",
+        "그리고", "하지만", "그러나", "그래서", "그런데", "또한", "모든", "어떤", "이런", "그런", "저런",
+        "다른", "같은", "매우", "너무", "아주", "정말", "바로", "모두", "함께", "다시", "서로", "항상",
+        "지금", "이미", "아마", "결국", "물론", "오히려", "특히", "가장", "조금", "먼저",
+    ]
 
     static let openers: Set<Character> = Set("([{“‘「『《〈")
     static let closersBefore: Set<Character> = Set(".,!?:;)]}”’」』》〉%…")
@@ -62,15 +76,29 @@ public enum LineJoiner {
 
         if isHangul(last) && isHangul(first) {
             if strongHeads.contains(head) { return "" }
-            var tailCount = 0
+            var tail = ""
             for ch in a.reversed() {
-                if isHangul(ch) { tailCount += 1 } else { break }
+                if isHangul(ch) { tail.insert(ch, at: tail.startIndex) } else { break }
             }
-            if tailCount >= 2 && wordFinals.contains(last) { return " " }
+            let whole = tail.count >= 2
+            if verbHeads.contains(head) {
+                return whole && particleFinals.contains(last) ? " " : ""
+            }
+            let weak = weakHeads.contains(head)
+            // "사람들" + "이 모였다": 복수 '들' 뒤의 한 글자는 조사다.
+            if whole && last == "들" { return weak ? "" : " " }
+            if standaloneWords.contains(tail) { return " " }
+            // "얻는" + "다. 그리고": 한 글자 뒤에 바로 문장부호가 오면 어미다.
+            if weak {
+                let rest = b.dropFirst(head.count)
+                if let next = rest.first, !next.isWhitespace { return "" }
+            }
+            if whole && wordFinals.contains(last) { return " " }
             return ""
         }
         if isHangul(first) && closingQuotes.contains(last) {
-            return (strongHeads.contains(head) || weakHeads.contains(head)) ? "" : " "
+            let attaches = strongHeads.contains(head) || weakHeads.contains(head) || verbHeads.contains(head)
+            return attaches ? "" : " "
         }
         if isIdeograph(last) && (isIdeograph(first) || isHangul(first)) { return "" }
         if isHangul(last) && isIdeograph(first) { return "" }

@@ -9,7 +9,7 @@ struct ReaderApp: App {
         WindowGroup("Reader") {
             ContentView()
                 .environmentObject(queue)
-                .frame(minWidth: 620, minHeight: 460)
+                .frame(minWidth: 720, minHeight: 460)
                 .onAppear {
                     NSApp.setActivationPolicy(.regular)
                     NSApp.activate(ignoringOtherApps: true)

@@ -16,7 +16,8 @@ public enum DocumentBuilder {
         var lastQuoteBlock: Int?
 
         for p in paragraphs {
-            let text = p.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var text = p.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if options.cleanNoise { text = NoiseCleaner.clean(text) }
             guard !text.isEmpty else { continue }
 
             if options.pageMarkers, currentPage != p.pageIndex {

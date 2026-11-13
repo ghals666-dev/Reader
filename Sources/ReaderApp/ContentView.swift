@@ -30,6 +30,7 @@ struct ContentView: View {
         HStack(spacing: 18) {
             Toggle("쪽 마커 [p.N]", isOn: $queue.pageMarkers)
             Toggle("소제목·인용 표시", isOn: $queue.structureMarkers)
+            Toggle("각주 번호 지우기", isOn: $queue.cleanNoise)
             Toggle("항상 OCR", isOn: $queue.forceOCR)
             Toggle("기존 txt 덮어쓰기", isOn: $queue.overwrite)
             Spacer()

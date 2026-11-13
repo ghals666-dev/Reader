@@ -7,6 +7,7 @@ let usage = """
 
   --no-page-markers   [p.N] 쪽 마커를 넣지 않는다
   --plain             소제목(##)·인용문(>) 표시를 넣지 않는다
+  --keep-noise        각주 번호 등 인식 잡음을 지우지 않는다
   --force-ocr         텍스트 레이어가 있어도 OCR한다
   --overwrite         이미 txt가 있어도 다시 만든다
   --stdout            파일로 저장하지 않고 화면에 출력한다
@@ -20,6 +21,7 @@ for arg in CommandLine.arguments.dropFirst() {
     switch arg {
     case "--no-page-markers": options.build.pageMarkers = false
     case "--plain": options.build.structureMarkers = false
+    case "--keep-noise": options.build.cleanNoise = false
     case "--force-ocr": options.forceOCR = true
     case "--overwrite": options.overwrite = true
     case "--stdout": toStdout = true
