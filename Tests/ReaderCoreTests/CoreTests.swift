@@ -368,6 +368,40 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "## ").count - 1, 1, text)
     }
 
+    func testInsetTitleAtTopOfPageIsHeading() {
+        // 쪽 맨 위에 들여 짠 제목이 있고 그 아래 본문이 이어진다(하루 한 쪽짜리 묵상집 모양).
+        let pages = (0..<2).map { i in
+            RawPage(index: i, height: pageH, lines: [
+                line(i == 0 ? "첫째 날의 제목" : "둘째 날의 제목", x: 0.09, to: 0.35, y: 0.100),
+                line("그날의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.190),
+                line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.226),
+                line("끝납니다.", x: 0.05, to: 0.30, y: 0.262),
+            ], source: .ocr)
+        }
+        let text = DocumentBuilder.build(pages: pages, options: plain()).text
+        XCTAssertTrue(text.contains("## 첫째 날의 제목\n\n"), text)
+        XCTAssertTrue(text.contains("## 둘째 날의 제목\n\n"), text)
+    }
+
+    func testUnfinishedQuoteStillContinuesIntoTitleLikeLine() {
+        // 앞 쪽의 인용문이 끝나지 않았다면, 다음 쪽 첫머리의 들여 짠 짧은 줄은 소제목이 아니라 인용문의 끝이다.
+        let p1 = RawPage(index: 0, height: pageH, lines: [
+            line("본문 첫 줄은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.100),
+            line("여기서 끝납니다.", x: 0.05, to: 0.50, y: 0.136),
+            line("인용한 글은 길게 이어지다가", x: 0.07, to: 0.95, y: 0.230),
+            line("쪽이 바뀌는 곳에서도 여전히", x: 0.07, to: 0.95, y: 0.266),
+        ], source: .ocr)
+        let p2 = RawPage(index: 1, height: pageH, lines: [
+            line("끝나지 않은 채 남은 줄", x: 0.07, to: 0.40, y: 0.100),
+            line("다음 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.190),
+            line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.226),
+            line("끝납니다.", x: 0.05, to: 0.30, y: 0.262),
+        ], source: .ocr)
+        let text = DocumentBuilder.build(pages: [p1, p2], options: plain()).text
+        XCTAssertFalse(text.contains("##"), text)
+        XCTAssertTrue(text.contains("여전히 끝나지 않은 채 남은 줄"), text)
+    }
+
     func testTitleShapes() {
         XCTAssertTrue(ParagraphBuilder.looksLikeTitle("불편한 예배"))
         XCTAssertTrue(ParagraphBuilder.looksLikeTitle("주님을 사랑하고 있습니까?"))

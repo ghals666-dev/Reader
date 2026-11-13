@@ -19,6 +19,8 @@ struct Paragraph {
     /// 덩어리 전체가 단의 왼쪽 끝보다 들여 짜여 있는지
     var blockInset = false
     var blockRowCount = 1
+    /// 가운데 정렬이 아니라 "떨어져 있는 짧은 줄"이라는 이유로 소제목이 된 경우
+    var leftHeading = false
 }
 
 /// 줄을 문단으로 묶는다. 보수적으로 동작한다:
@@ -57,9 +59,14 @@ enum ParagraphBuilder {
 
     /// 앞 단·앞 쪽의 마지막 문단이 다음 단·쪽의 첫 문단으로 이어지는지.
     static func continues(_ prev: Paragraph, _ next: Paragraph) -> Bool {
-        guard prev.kind != .heading, next.kind != .heading else { return false }
         // 문장이 끝난 채로 넘어갔다면 새 문단일 수 있으므로 잇지 않는다.
         guard prev.lastRowFull, !LineJoiner.endsTerminal(prev.text) else { return false }
+        // 끝나지 않은 인용문 바로 뒤, 다음 쪽 첫머리의 들여 짠 한 줄은 소제목처럼 보여도 인용문의 끝이다.
+        if prev.kind == .quote, next.kind == .heading, next.leftHeading,
+           next.blockInset, next.blockRowCount == 1 {
+            return true
+        }
+        guard prev.kind != .heading, next.kind != .heading else { return false }
         if prev.kind == next.kind { return !next.startsIndented }
         // 인용문의 마지막 한 줄만 다음 쪽으로 넘어온 경우: 한 줄뿐이라 인용문으로
         // 분류되지 못했지만, 들여 짜여 있고 앞 인용문이 끝나지 않았으므로 이어 붙인다.
@@ -112,13 +119,18 @@ enum ParagraphBuilder {
             let bR = block.map { $0.box.maxX }.max() ?? colR
             let blockH = median(block.map { $0.box.height }) ?? bodyH
 
-            if isHeading(block, colL: colL, colR: colR, colW: colW, segmentRows: rows.count)
-                || isLeftHeading(block, colL: colL, colR: colR, colW: colW, bodyH: bodyH,
-                                 segmentRows: rows.count,
-                                 isFirst: blockIndex == 0, isLast: blockIndex == blocks.count - 1) {
+            let centered = isHeading(block, colL: colL, colR: colR, colW: colW, segmentRows: rows.count)
+            let left = !centered && isLeftHeading(block, colR: colR, colW: colW,
+                                                  segmentRows: rows.count,
+                                                  isLast: blockIndex == blocks.count - 1)
+            if centered || left {
                 let text = block.map { $0.text }.joined(separator: " ")
-                out.append(Paragraph(kind: .heading, text: text, pageIndex: pageIndex,
-                                     blockID: blockID, startsIndented: true, lastRowFull: false))
+                var heading = Paragraph(kind: .heading, text: text, pageIndex: pageIndex,
+                                        blockID: blockID, startsIndented: true, lastRowFull: false)
+                heading.leftHeading = left
+                heading.blockInset = bL - colL > indentMin * bodyH
+                heading.blockRowCount = block.count
+                out.append(heading)
                 continue
             }
 
@@ -188,15 +200,11 @@ enum ParagraphBuilder {
 
     /// 왼쪽 정렬 소제목: 앞뒤가 빈 줄로 떨어진 한두 줄짜리 짧은 글로, 문장처럼 끝나지 않고
     /// 뒤에 내용이 이어지는 것.
-    private static func isLeftHeading(_ block: [Row], colL: Double, colR: Double, colW: Double,
-                                      bodyH: Double, segmentRows: Int,
-                                      isFirst: Bool, isLast: Bool) -> Bool {
+    private static func isLeftHeading(_ block: [Row], colR: Double, colW: Double,
+                                      segmentRows: Int, isLast: Bool) -> Bool {
         guard block.count <= 2, segmentRows >= 4, colW > 0, !isLast else { return false }
         // 줄이 오른쪽 끝까지 차 있으면 문단에서 떨어져 나온 조각일 가능성이 크다.
         for row in block where colR - row.box.maxX <= 0.15 * colW { return false }
-        // 쪽 첫머리의 들여 짠 한 줄은 앞 쪽에서 넘어온 인용문의 끝일 수 있다.
-        let inset = (block.map { $0.box.minX }.min() ?? colL) - colL
-        if isFirst && inset > indentMin * bodyH { return false }
         return looksLikeTitle(block.map { $0.text }.joined(separator: " "))
     }
 
