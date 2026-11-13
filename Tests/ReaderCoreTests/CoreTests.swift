@@ -372,15 +372,15 @@ final class CoreTests: XCTestCase {
         // 쪽 맨 위에 들여 짠 제목이 있고 그 아래 본문이 이어진다(하루 한 쪽짜리 묵상집 모양).
         let pages = (0..<2).map { i in
             RawPage(index: i, height: pageH, lines: [
-                line(i == 0 ? "첫째 날의 제목" : "둘째 날의 제목", x: 0.09, to: 0.35, y: 0.100),
-                line("그날의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.190),
-                line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.226),
-                line("끝납니다.", x: 0.05, to: 0.30, y: 0.262),
+                line(i == 0 ? "아침에 걷는 길" : "저녁에 부르는 노래", x: 0.09, to: 0.35, y: 0.160),
+                line("그날의 본문은 오른쪽 끝까지 이어지고", x: 0.05, to: 0.95, y: 0.250),
+                line("한 줄 더 오른쪽 끝까지 이어지다가", x: 0.05, to: 0.95, y: 0.286),
+                line("끝납니다.", x: 0.05, to: 0.30, y: 0.322),
             ], source: .ocr)
         }
         let text = DocumentBuilder.build(pages: pages, options: plain()).text
-        XCTAssertTrue(text.contains("## 첫째 날의 제목\n\n"), text)
-        XCTAssertTrue(text.contains("## 둘째 날의 제목\n\n"), text)
+        XCTAssertTrue(text.contains("## 아침에 걷는 길\n\n"), text)
+        XCTAssertTrue(text.contains("## 저녁에 부르는 노래\n\n"), text)
     }
 
     func testUnfinishedQuoteStillContinuesIntoTitleLikeLine() {
