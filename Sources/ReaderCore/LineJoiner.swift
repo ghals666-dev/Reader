@@ -53,6 +53,9 @@ public enum LineJoiner {
     /// 조사로 끝난 것으로 보이는 글자. 뒤에 '하다' 꼴이 와도 띄운다("숙제를 했다").
     static let particleFinals: Set<Character> = Set("을를은는이가도만에게히로와과")
 
+    /// 홀로 낱말로 쓰는 한 글자(관형사·부사·의존명사)
+    static let standaloneSyllables: Set<Character> = Set("이그저한두세내네제더잘참왜수것때안못늘곧즉좀또및각온전매몇첫새옛큰")
+
     /// 앞 줄이 이 낱말로 끝나면 뒤는 새 낱말이다.
     static let standaloneWords: Set<String> = [
         "위해", "대해", "통해", "인해", "향해", "계속", "무슨", "그때", "이때", "그러자", "역시",
@@ -130,7 +133,9 @@ public enum LineJoiner {
                 let rest = b.dropFirst(head.count)
                 if let next = rest.first, !next.isWhitespace { return "" }
             }
+            // 한 글자 조각은 우연히 낱말과 같을 수 있으므로("가" + "기를"), 홀로 쓰는 말일 때만 믿는다.
             if let lexicon, let t = tailWord, let h = headWord, h.count >= 2,
+               t.count >= 2 || standaloneSyllables.contains(last),
                lexicon.contains(t), lexicon.contains(h) {
                 return " "
             }
