@@ -307,6 +307,45 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("끝납니다.\n"), text)
     }
 
+    func testSlightlySkewedPageStaysOneParagraph() {
+        // 기울어진 스캔: 아래로 갈수록 줄 전체가 오른쪽으로 조금씩 밀린다.
+        var lines: [TextLine] = []
+        for i in 0..<16 {
+            let shift = 0.0015 * Double(i)
+            let y = 0.2 + pitch * Double(i)
+            if i == 15 {
+                lines.append(line("마지막 줄입니다.", x: 0.05 + shift, to: 0.40 + shift, y: y))
+            } else {
+                lines.append(line("기울어진 쪽의 \(i)번째 줄은 끝까지 이어지고", x: 0.05 + shift, to: 0.95 + shift, y: y))
+            }
+        }
+        let page = RawPage(index: 0, height: pageH, lines: lines, source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).contains("\n"), text)
+    }
+
+    func testBlocksWithDifferentLineSpacingAreNotShattered() {
+        // 줄 간격이 촘촘한 덩어리와 넓은 덩어리가 한 쪽에 있다.
+        var lines: [TextLine] = []
+        for i in 0..<6 {
+            let y = 0.2 + 0.030 * Double(i)
+            lines.append(i == 5
+                ? line("촘촘한 덩어리가 끝납니다.", x: 0.05, to: 0.40, y: y)
+                : line("촘촘한 덩어리의 \(i)번째 줄은 끝까지 이어지고", x: 0.05, to: 0.95, y: y))
+        }
+        for i in 0..<6 {
+            let y = 0.44 + 0.045 * Double(i)
+            lines.append(i == 5
+                ? line("넓은 덩어리가 끝납니다.", x: 0.05, to: 0.40, y: y)
+                : line("넓은 덩어리의 \(i)번째 줄은 끝까지 이어지고", x: 0.05, to: 0.95, y: y))
+        }
+        let page = RawPage(index: 0, height: pageH, lines: lines, source: .ocr)
+        let text = DocumentBuilder.build(pages: [page], options: plain()).text
+        let chunks = text.components(separatedBy: "\n\n").filter { !$0.isEmpty }
+        XCTAssertEqual(chunks.count, 2, text)
+        XCTAssertFalse(text.trimmingCharacters(in: .newlines).replacingOccurrences(of: "\n\n", with: "").contains("\n"), text)
+    }
+
     func testEndsTerminal() {
         XCTAssertTrue(LineJoiner.endsTerminal("그렇게 말했습니다.7"))
         XCTAssertTrue(LineJoiner.endsTerminal("그렇지 않겠지요.”"))

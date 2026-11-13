@@ -75,22 +75,29 @@ enum ParagraphBuilder {
         let colR = rows.map { $0.box.maxX }.max() ?? 0
         let colW = colR - colL
 
-        // 줄 간격이 평소보다 눈에 띄게 벌어진 곳에서 덩어리를 나눈다.
+        // 줄 간격이 벌어진 곳에서 덩어리를 나눈다.
+        // 쪽 안에 줄 간격이 다른 구역(글상자, 인용문)이 섞여 있을 수 있으므로,
+        // 쪽 전체가 아니라 앞뒤 두 줄씩의 간격과 견준다. 빈 줄만큼 크게 벌어진 곳은 무조건 나눈다.
         var pitches: [Double] = []
         for i in 1..<max(rows.count, 1) {
             pitches.append(rows[i].box.minY - rows[i - 1].box.minY)
         }
-        let positive = pitches.filter { $0 > 0 }
-        let threshold: Double
-        if positive.count >= 3, let base = lowerQuartile(positive) {
-            threshold = base * blockGapFactor
-        } else {
-            threshold = bodyH * 2.2
+        let blankLine = bodyH * 2.4
+        func isGap(_ k: Int) -> Bool {
+            let pitch = pitches[k]
+            if pitch > blankLine { return true }
+            var near: [Double] = []
+            for j in [k - 2, k - 1, k + 1, k + 2] where j >= 0 && j < pitches.count {
+                if pitches[j] >= 0.5 * bodyH { near.append(pitches[j]) }
+            }
+            guard !near.isEmpty else { return false }
+            near.sort()
+            return pitch > near[(near.count - 1) / 2] * blockGapFactor
         }
 
         var blocks: [[Row]] = [[rows[0]]]
         for i in 1..<max(rows.count, 1) {
-            if pitches[i - 1] > threshold {
+            if isGap(i - 1) {
                 blocks.append([rows[i]])
             } else {
                 blocks[blocks.count - 1].append(rows[i])
@@ -124,10 +131,19 @@ enum ParagraphBuilder {
             let reachingRight = block.filter { bR - $0.box.maxX < bodyH }.count
             let refR = (block.count >= 3 && reachingRight >= 2) ? bR : colR
 
-            func indented(_ row: Row) -> Bool {
-                let d = row.box.minX - refL
+            /// 문단 첫 줄처럼 들여 쓴 줄인지.
+            /// 스캔이 조금 기울면 줄의 왼쪽 끝이 아래로 갈수록 밀리므로, 바로 앞뒤 줄과 견준다.
+            func indented(_ i: Int) -> Bool {
+                var reference = refL
+                var near: [Double] = []
+                for j in [i - 1, i + 1] where j >= 0 && j < block.count {
+                    near.append(block[j].box.minX)
+                }
+                if let nearest = near.min() { reference = nearest }
+                let d = block[i].box.minX - reference
                 return d > indentMin * bodyH && d < indentMax * bodyH
             }
+
             /// 문단의 마지막 줄처럼 오른쪽이 비어 있는 줄인지.
             /// 이웃 줄과 오른쪽 끝이 나란하면 글 폭이 좁아진 구간일 뿐이므로 짧은 줄로 보지 않는다.
             func short(_ i: Int) -> Bool {
@@ -140,18 +156,18 @@ enum ParagraphBuilder {
             }
 
             var text = block[0].text
-            var startIndented = indented(block[0])
+            var startIndented = indented(0)
             for i in 1..<max(block.count, 1) {
                 let prev = block[i - 1]
                 let row = block[i]
                 let prevShort = short(i - 1)
-                if indented(row) || (prevShort && LineJoiner.endsTerminal(prev.text)) {
+                if indented(i) || (prevShort && LineJoiner.endsTerminal(prev.text)) {
                     out.append(Paragraph(kind: kind, text: text, pageIndex: pageIndex,
                                          blockID: blockID, startsIndented: startIndented,
                                          lastRowFull: !prevShort,
                                          blockInset: blockInset, blockRowCount: block.count))
                     text = row.text
-                    startIndented = indented(row)
+                    startIndented = indented(i)
                 } else if prevShort {
                     // 짧게 끝났지만 문장이 끝나지 않았다: 목록·시 등일 수 있으니 줄바꿈 유지
                     text += "\n" + row.text
