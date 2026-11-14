@@ -38,25 +38,3 @@ jobs:
           path: |
             build/Reader.zip
             build/reader-cli
-
-  # main에 합쳐질 때마다 앱을 Releases에 올린다. (Actions 아티팩트는 90일 뒤 사라진다.)
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [core, macos]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: Reader
-          path: dist
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v0.1.${{ github.run_number }}" dist/Reader.zip dist/reader-cli \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Reader 0.1.${{ github.run_number }}" \
-            --notes "Reader.zip을 받아 압축을 풀고 Reader.app을 실행하세요. 처음 실행하는 방법은 README를 참고하세요."
-
