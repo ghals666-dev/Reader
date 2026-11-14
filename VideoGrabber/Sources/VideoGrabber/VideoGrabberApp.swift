@@ -1,13 +1,21 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 // MARK: - 도구 위치 찾기
 
 enum Tools {
+    /// 앱 안에서 갱신한 yt-dlp를 넣어 두는 곳. 있으면 번들 것보다 먼저 쓴다.
+    static var updatedYtdlp: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VideoGrabber/yt-dlp")
+    }
+
     static let searchDirs = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
 
     static func find(_ name: String) -> String? {
         var candidates: [String] = []
+        if name == "yt-dlp" { candidates.append(updatedYtdlp.path) }
         if let res = Bundle.main.resourceURL { candidates.append(res.appendingPathComponent(name).path) }
         candidates += searchDirs.map { "\($0)/\(name)" }
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
@@ -28,6 +36,21 @@ struct Quality: Identifiable, Hashable {
     var label: String { height.map { "\($0)p" } ?? "최고 화질" }
 }
 
+enum CookieSource: String, CaseIterable, Identifiable {
+    case off = "사용 안 함", safari = "safari", chrome = "chrome", firefox = "firefox", edge = "edge"
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .off: return "로그인 쿠키 사용 안 함"
+        case .safari: return "Safari 쿠키"
+        case .chrome: return "Chrome 쿠키"
+        case .firefox: return "Firefox 쿠키"
+        case .edge: return "Edge 쿠키"
+        }
+    }
+    var args: [String] { self == .off ? [] : ["--cookies-from-browser", rawValue] }
+}
+
 // MARK: - 다운로드 상태
 
 @MainActor
@@ -43,10 +66,79 @@ final class Downloader: ObservableObject {
         .urls(for: .downloadsDirectory, in: .userDomainMask).first!
     @Published var progress: Double = 0
     @Published var status = "영상 주소를 복사한 뒤 이 창을 여세요."
+    @Published var ytdlpVersion = ""
+    @Published var updating = false
+    @Published var cookies: CookieSource = CookieSource(
+        rawValue: UserDefaults.standard.string(forKey: "cookies") ?? "") ?? .off {
+        didSet { UserDefaults.standard.set(cookies.rawValue, forKey: "cookies") }
+    }
 
-    let ytdlp = Tools.find("yt-dlp")
+    @Published var ytdlp = Tools.find("yt-dlp")
     let ffmpeg = Tools.find("ffmpeg")
     private var process: Process?
+    private var errorLines: [String] = []
+
+    init() {
+        refreshVersion()
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
+    }
+
+    // MARK: yt-dlp 버전·갱신
+
+    func refreshVersion() {
+        guard let path = ytdlp else { ytdlpVersion = ""; return }
+        Task {
+            let v = await Task.detached { () -> String in
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: path)
+                p.arguments = ["--version"]
+                let out = Pipe()
+                p.standardOutput = out
+                p.standardError = FileHandle.nullDevice
+                guard (try? p.run()) != nil else { return "" }
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                p.waitUntilExit()
+                return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }.value
+            ytdlpVersion = v
+        }
+    }
+
+    func updateYtdlp() {
+        guard !updating, phase != .downloading else { return }
+        updating = true
+        status = "yt-dlp 최신 버전을 받는 중…"
+        Task {
+            defer { updating = false }
+            do {
+                let src = URL(string: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")!
+                let (tmp, resp) = try await URLSession.shared.download(from: src)
+                guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+                let dest = Tools.updatedYtdlp
+                try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: tmp, to: dest)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dest.path)
+                ytdlp = dest.path
+                refreshVersion()
+                status = "yt-dlp를 최신 버전으로 갱신했습니다."
+            } catch {
+                status = "갱신하지 못했습니다: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func notify(_ title: String, _ body: String) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let c = UNMutableNotificationContent()
+        c.title = title
+        c.body = body
+        c.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+    }
 
     // MARK: 클립보드
 
@@ -84,7 +176,7 @@ final class Downloader: ObservableObject {
         quality = qualities[0]
 
         Task {
-            let result = await Self.runInfo(ytdlp: ytdlp, url: url)
+            let result = await Self.runInfo(ytdlp: ytdlp, url: url, cookies: cookies)
             guard urlText.trimmingCharacters(in: .whitespacesAndNewlines) == url else { return }
             if let (name, heights) = result {
                 title = name
@@ -99,11 +191,11 @@ final class Downloader: ObservableObject {
         }
     }
 
-    private nonisolated static func runInfo(ytdlp: String, url: String) async -> (String, [Int])? {
+    private nonisolated static func runInfo(ytdlp: String, url: String, cookies: CookieSource) async -> (String, [Int])? {
         await Task.detached { () -> (String, [Int])? in
             let p = Process()
             p.executableURL = URL(fileURLWithPath: ytdlp)
-            p.arguments = ["-J", "--no-playlist", "--no-warnings", url]
+            p.arguments = ["-J", "--no-playlist", "--no-warnings"] + cookies.args + [url]
             p.environment = Tools.environment
             let out = Pipe()
             p.standardOutput = out
@@ -134,6 +226,7 @@ final class Downloader: ObservableObject {
         var args = ["--newline", "--no-playlist", "--restrict-filenames",
                     "-P", folder.path, "-o", "%(title).150B [%(id)s].%(ext)s"]
         if let ffmpeg { args += ["--ffmpeg-location", ffmpeg] }
+        args += cookies.args
         let cap = quality.height.map { "[height<=\($0)]" } ?? ""
         if ffmpeg != nil {
             args += ["-f", "bv*\(cap)+ba/b\(cap)", "--merge-output-format", "mp4"]
@@ -163,6 +256,7 @@ final class Downloader: ObservableObject {
         }
 
         progress = 0
+        errorLines = []
         status = "다운로드 중…"
         phase = .downloading
         do {
@@ -179,6 +273,9 @@ final class Downloader: ObservableObject {
     func openFolder() { NSWorkspace.shared.open(folder) }
 
     private func consume(_ text: String) {
+        for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("ERROR:") {
+            errorLines.append(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces))
+        }
         // "[download]  42.3% of ..." 에서 퍼센트를 읽는다.
         guard let range = text.range(of: #"\[download\]\s+([0-9.]+)%"#, options: .regularExpression) else { return }
         let digits = text[range].filter { "0123456789.".contains($0) }
@@ -193,8 +290,11 @@ final class Downloader: ObservableObject {
         } else if code == 0 {
             progress = 1
             status = "완료! \(folder.lastPathComponent) 폴더에 저장했습니다."
+            notify("다운로드 완료", title.isEmpty ? folder.lastPathComponent : title)
         } else {
-            status = "다운로드에 실패했습니다. (코드 \(code))"
+            let reason = errorLines.last.map { String($0.prefix(160)) } ?? "코드 \(code)"
+            status = "실패: \(reason)"
+            notify("다운로드 실패", reason)
         }
     }
 }
@@ -225,6 +325,10 @@ struct MenuView: View {
                 .disabled(dl.phase == .downloading)
             }
 
+            Picker("쿠키", selection: $dl.cookies) {
+                ForEach(CookieSource.allCases) { Text($0.label).tag($0) }
+            }
+
             HStack {
                 Text(dl.folder.path).lineLimit(1).truncationMode(.middle)
                     .font(.caption).foregroundStyle(.secondary)
@@ -249,11 +353,19 @@ struct MenuView: View {
             if dl.phase == .downloading || dl.progress > 0 { ProgressView(value: dl.progress) }
             Text(dl.status).font(.callout)
 
+            HStack {
+                Text(dl.ytdlpVersion.isEmpty ? "yt-dlp 없음" : "yt-dlp \(dl.ytdlpVersion)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(dl.updating ? "갱신 중…" : "yt-dlp 갱신") { dl.updateYtdlp() }
+                    .controlSize(.small)
+                    .disabled(dl.updating || dl.phase == .downloading)
+            }
+
             if dl.ytdlp == nil {
-                Text("yt-dlp를 찾을 수 없습니다. 터미널에서 brew install yt-dlp")
+                Text("yt-dlp를 찾을 수 없습니다. 위의 갱신 버튼을 누르세요.")
                     .foregroundStyle(.red).font(.caption)
             } else if dl.ffmpeg == nil {
-                Text("ffmpeg가 없어 영상·음성 합치기가 꺼져 있습니다. (brew install ffmpeg)")
+                Text("ffmpeg가 없어 1080p 이상은 못 받을 수 있습니다. 터미널에서 brew install ffmpeg")
                     .foregroundStyle(.secondary).font(.caption)
             }
         }
