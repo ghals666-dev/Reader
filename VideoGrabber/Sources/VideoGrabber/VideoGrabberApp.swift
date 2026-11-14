@@ -74,7 +74,8 @@ final class Downloader: ObservableObject {
     }
 
     @Published var ytdlp = Tools.find("yt-dlp")
-    let ffmpeg = Tools.find("ffmpeg")
+    /// 매번 다시 찾는다. 앱을 켠 채로 ffmpeg를 설치해도 바로 인식한다.
+    var ffmpeg: String? { Tools.find("ffmpeg") }
     private var process: Process?
     private var errorLines: [String] = []
 
@@ -292,7 +293,10 @@ final class Downloader: ObservableObject {
             status = "완료! \(folder.lastPathComponent) 폴더에 저장했습니다."
             notify("다운로드 완료", title.isEmpty ? folder.lastPathComponent : title)
         } else {
-            let reason = errorLines.last.map { String($0.prefix(160)) } ?? "코드 \(code)"
+            var reason = errorLines.last.map { String($0.prefix(160)) } ?? "코드 \(code)"
+            if ffmpeg == nil, reason.contains("format is not available") {
+                reason = "ffmpeg가 필요합니다. 터미널에서 brew install ffmpeg 후 다시 시도하세요."
+            }
             status = "실패: \(reason)"
             notify("다운로드 실패", reason)
         }
