@@ -299,7 +299,7 @@ final class Downloader: ObservableObject {
     }
 }
 
-// MARK: - 메뉴바 창
+// MARK: - 메인 화면
 
 struct MenuView: View {
     @ObservedObject var dl: Downloader
@@ -372,6 +372,9 @@ struct MenuView: View {
         .padding(14)
         .frame(width: 380)
         .onAppear { dl.pasteFromClipboard() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            dl.pasteFromClipboard()
+        }
     }
 }
 
@@ -380,9 +383,13 @@ struct VideoGrabberApp: App {
     @StateObject private var dl = Downloader()
 
     var body: some Scene {
-        MenuBarExtra("VideoGrabber", systemImage: "arrow.down.circle") {
+        WindowGroup("VideoGrabber") {
             MenuView(dl: dl)
+                .onAppear {
+                    NSApp.setActivationPolicy(.regular)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
         }
-        .menuBarExtraStyle(.window)
+        .windowResizability(.contentSize)
     }
 }
